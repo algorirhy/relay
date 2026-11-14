@@ -83,7 +83,7 @@ function createHarness({ richText = true, confirm = true, replace = false, accep
     addEventListener(type, listener) { if (type === 'message') listeners.add(listener); },
     removeEventListener(type, listener) { if (type === 'message') listeners.delete(listener); },
     postMessage(data) {
-      if (data.source === 'one-ai-shortcut-page') results.push(data);
+      if (data.source === 'relay-page') results.push(data);
       for (const listener of [...listeners]) {
         queueMicrotask(() => listener({ source: window, origin: location.origin, data }));
       }
@@ -134,7 +134,7 @@ function createHarness({ richText = true, confirm = true, replace = false, accep
       return new Promise((resolve) => runtimeListener({ action: 'submit-prompt', prompt, attachments: [] }, {}, resolve));
     },
     async submitMain(prompt) {
-      window.postMessage({ source: 'one-ai-shortcut', siteId: 'doubao', action: 'page-submit', requestId: 'test', prompt });
+      window.postMessage({ source: 'relay-extension', siteId: 'doubao', action: 'page-submit', requestId: 'test', prompt });
       for (let index = 0; index < 2000 && !results.length; index += 1) await new Promise(queueMicrotask);
       assert.equal(results.length, 1, 'bridge must return one result');
       return results[0];

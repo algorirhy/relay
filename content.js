@@ -430,7 +430,7 @@
         if (
           event.source !== window ||
           event.origin !== window.location.origin ||
-          event.data?.source !== 'one-ai-shortcut-page' ||
+          event.data?.source !== 'relay-page' ||
           event.data?.action !== resultAction ||
           event.data?.requestId !== requestId
         ) {
@@ -445,7 +445,7 @@
 
       window.addEventListener('message', handleResult);
       window.postMessage({
-        source: 'one-ai-shortcut',
+        source: 'relay-extension',
         action,
         siteId,
         requestId,

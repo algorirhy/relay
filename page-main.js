@@ -3,9 +3,9 @@
 (() => {
   'use strict';
 
-  const INSTALL_FLAG = '__oneAIShortcutPageMainInstalled';
-  const REQUEST_SOURCE = 'one-ai-shortcut';
-  const RESPONSE_SOURCE = 'one-ai-shortcut-page';
+  const INSTALL_FLAG = '__relayPageMainInstalled';
+  const REQUEST_SOURCE = 'relay-extension';
+  const RESPONSE_SOURCE = 'relay-page';
   let pendingDoubaoUpload = null;
 
   if (window[INSTALL_FLAG]) return;
