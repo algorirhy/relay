@@ -3,8 +3,8 @@
   "name": "Relay",
   "short_name": "Relay",
   "version": "2.0.0",
-  "description": "Search Google or send prompts and files to AI services from your new tab.",
-  "homepage_url": "https://github.com/algorirhy/one-ai-shortcut",
+  "description": "Search Google or send prompts and files to one or more AI services from your Chrome new tab.",
+  "homepage_url": "https://github.com/algorirhy/relay",
   "permissions": ["tabs", "notifications", "storage"],
   "commands": {
     "new-chat": {

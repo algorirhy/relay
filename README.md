@@ -61,4 +61,4 @@ Relay uses temporary session storage for draft recovery and keeps attachment con
 
 See the [development guide](./docs/DEVELOPMENT.md) for architecture, site adapters, tests, and release checks.
 
-[MIT](./LICENSE) · [GitHub](https://github.com/algorirhy/one-ai-shortcut)
+[MIT](./LICENSE) · [GitHub](https://github.com/algorirhy/relay)

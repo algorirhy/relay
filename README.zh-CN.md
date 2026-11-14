@@ -61,4 +61,4 @@ Relay 把 Google 搜索和 ChatGPT、Claude、Gemini、Grok、DeepSeek、豆包�
 
 架构、网站适配、测试与发布检查见[开发指南](./docs/DEVELOPMENT.md)。
 
-[MIT](./LICENSE) · [GitHub](https://github.com/algorirhy/one-ai-shortcut)
+[MIT](./LICENSE) · [GitHub](https://github.com/algorirhy/relay)
