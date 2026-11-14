@@ -2,30 +2,52 @@
 
 ## English
 
-One AI Shortcut does not collect, sell, or retain personal information, messages, attachments, browsing history, or usage analytics. It has no developer-operated backend.
+Relay has no developer-operated backend, analytics, advertising, or tracking. It does not intercept AI replies or keep permanent prompt history. Selected providers receive search terms, messages, and attachments according to the actions you choose and process them under their own terms and privacy policies.
 
-When you send a message, the extension processes its text and attachments in memory and sends them only to the AI chatbots selected in the popup. Attachment bytes are encoded locally for transfer between extension components and remain in memory only while the background delivery job is running; the extension does not write them to persistent storage. Selected services receive and process the content according to their own terms and privacy policies. The extension does not intercept or store chatbot responses.
+### Local data
 
-The extension requests only these Chrome permissions:
+| Data | Handling |
+| --- | --- |
+| New-tab recovery task | Exact text, selected destinations, source tab and window, timestamp, result, and file metadata (name, MIME type, size, modified time) stored in `chrome.storage.session`. No cloud sync or local/sync storage of prompts. |
+| Attachment contents | Kept only in memory while composing and sending. After restoring a draft, reselect missing files. |
+| Last single-service choice | Service ID saved in extension-origin `localStorage`. |
+| Google search | Terms appear in the destination URL and may enter browser history. |
+| Clipboard | Changed only by an explicit **Copy prompt** fallback; system clipboard history/sync settings then apply. |
 
-- `tabs`: locate an existing supported AI service tab, navigate it to a new chat, or create a background tab.
-- `notifications`: show a local system notification naming chatbots whose delivery failed.
+Once all selected operations succeed, recovery text and file metadata are removed. Failed or unconfirmed tasks retain the draft. Closing the source tab clears its record; records older than one hour are removed when accessed. Disabling, reloading, or updating the extension, or restarting Chrome, clears session memory. Recovery data is not exposed to content scripts under the default session access policy.
 
-Website access is limited by the manifest to the six supported AI services. The extension does not use remote code, advertising, tracking pixels, or third-party analytics.
+### Permissions
 
-Questions or reports can be submitted through [GitHub Issues](https://github.com/algorirhy/one-ai-shortcut/issues).
+| Permission | Purpose |
+| --- | --- |
+| `tabs` | Identify the source tab and find, reuse, navigate, or create destination tabs. |
+| `notifications` | Report failed or unconfirmed delivery. |
+| `storage` | Keep temporary new-tab recovery tasks in session memory. |
+
+Content scripts run on the six supported chat services and the Google AI Mode routes used for requests with files. Ordinary Google searches use a search URL and do not trigger attachment automation.
 
 ## 简体中文
 
-One AI Shortcut 不会收集、出售或保留个人信息、消息、附件、浏览记录或使用分析数据，也没有由开发者运营的后端服务。
+Relay 没有开发者后端、使用分析、广告或跟踪，不截取 AI 回复，不保存永久提问历史。所选服务根据你的操作接收搜索词、消息和附件，并按各自条款与隐私政策处理。
 
-发送消息时，扩展只在内存中处理文字和附件，并仅发送给弹窗中选中的 AI 聊天服务。附件数据会在本地编码，用于扩展组件之间的传输，并且只在后台发送任务运行期间保留在内存中；扩展不会把附件写入持久化存储。被选中的服务会按照各自的条款和隐私政策处理收到的内容。扩展不会截取或保存这些服务生成的回复。
+### 本地数据
 
-扩展仅申请以下 Chrome 权限：
+| 数据 | 处理方式 |
+| --- | --- |
+| 新标签页恢复任务 | 完整文字、所选服务、来源标签页和窗口、时间、结果和文件元数据（文件名、MIME 类型、大小及修改时间）暂存在 `chrome.storage.session`，问题不写入 local/sync 存储或云端同步。 |
+| 文件内容 | 编辑和发送时只保留在内存中。恢复草稿后需要重新选择缺失的文件。 |
+| 上次单选服务 | 服务 ID 保存在扩展来源的 `localStorage`。 |
+| Google 搜索 | 搜索词包含在目标 URL 中，可能进入浏览器历史。 |
+| 剪贴板 | 仅主动点击 **Copy prompt** 时覆盖；之后受系统剪贴板历史 / 同步设置影响。 |
 
-- `tabs`：查找已打开的受支持网站标签页，将其导航到新对话，或创建后台标签页。
-- `notifications`：发送失败时，通过本地系统通知列出失败的 AI 聊天服务。
+所有所选操作均成功后，会移除恢复任务中的文字和文件元数据。失败或未确认发送时会保留草稿。关闭来源标签页会清理记录，超过一小时的记录在再次访问时清理。停用、重载、更新扩展或重启 Chrome 会清空会话内存。会话恢复数据默认不向内容脚本开放。
 
-网站访问范围通过扩展清单限制在六个受支持的 AI 服务。扩展不使用远程代码、广告、跟踪像素或第三方分析工具。
+### 权限
 
-如有问题，可以通过 [GitHub Issues](https://github.com/algorirhy/one-ai-shortcut/issues) 提交。
+| 权限 | 用途 |
+| --- | --- |
+| `tabs` | 识别来源标签页，查找、复用、导航或创建目标标签页。 |
+| `notifications` | 提示发送失败或未确认发送。 |
+| `storage` | 在会话内存中暂存新标签页恢复任务。 |
+
+内容脚本在六个受支持的聊天服务及带附件请求使用的 Google AI Mode 页面运行。普通 Google 搜索通过搜索 URL 打开，不会触发附件自动化。

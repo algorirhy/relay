@@ -16,9 +16,7 @@
   }
 
   function currentSiteId() {
-    if (location.hostname.endsWith('doubao.com')) return 'doubao';
-    if (location.hostname === 'gemini.google.com') return 'gemini';
-    return null;
+    return RelaySites.findSiteByUrl(location.href)?.id;
   }
 
   function isVisible(element) {
@@ -105,51 +103,10 @@
     };
   }
 
-  function attachmentFileName(name) {
-    const normalized = typeof name === 'string' ? name.trim() : '';
-    return (normalized || 'attachment').replace(/[\\/\0]/g, '_');
-  }
-
-  function decodeAttachment(attachment) {
-    const match = attachment?.dataUrl?.match(/^data:([^;,]*)(?:;[^,]*)?;base64,(.*)$/s);
-    if (!match) throw new Error(`Could not decode ${attachmentFileName(attachment?.name)}.`);
-
-    const binary = atob(match[2]);
-    const bytes = new Uint8Array(binary.length);
-    for (let index = 0; index < binary.length; index += 1) {
-      bytes[index] = binary.charCodeAt(index);
-    }
-
-    return new File([bytes], attachmentFileName(attachment.name), {
-      type: attachment.type || match[1] || 'application/octet-stream',
-      lastModified: Number.isFinite(attachment.lastModified)
-        ? attachment.lastModified
-        : Date.now(),
-    });
-  }
-
-  function inputAcceptsFile(input, file) {
-    const rules = input.accept
-      .split(',')
-      .map((rule) => rule.trim().toLowerCase())
-      .filter(Boolean);
-    if (!rules.length) return true;
-
-    const type = file.type.toLowerCase();
-    const name = file.name.toLowerCase();
-    return rules.some((rule) => (
-      rule === '*/*' ||
-      (rule.endsWith('/*') && type.startsWith(rule.slice(0, -1))) ||
-      (rule.startsWith('.') && name.endsWith(rule)) ||
-      (!rule.includes('/') && !rule.startsWith('.') && name.endsWith(`.${rule}`)) ||
-      rule === type
-    ));
-  }
-
   function findFileInput(siteId, files) {
     const inputs = [...document.querySelectorAll('input[type="file"]')]
       .filter((input) => (
-        !input.disabled && files.every((file) => inputAcceptsFile(input, file))
+        !input.disabled && files.every((file) => RelayAttachments.inputAcceptsFile(input, file))
       ));
 
     return inputs.sort((left, right) => (
@@ -211,7 +168,7 @@
   }
 
   async function setFiles(siteId, attachments) {
-    const files = attachments.map(decodeAttachment);
+    const files = attachments.map(RelayAttachments.decode);
     const input = siteId === 'gemini'
       ? await prepareGeminiInput(files)
       : await waitForDoubaoInput(files);
@@ -252,9 +209,12 @@
   }
 
   function findDoubaoComposer() {
-    const editor = [...document.querySelectorAll('textarea')].find((element) => (
-      isVisible(element) && (element.placeholder || '').includes('发消息')
-    ));
+    const site = RelaySites.getSite('doubao');
+    let editor = null;
+    for (const selector of site.inputSelectors) {
+      editor = [...document.querySelectorAll(selector)].find(isEnabled);
+      if (editor) break;
+    }
     if (!editor) return null;
 
     const currentSendButton = document.querySelector('#flow-end-msg-send');
@@ -283,6 +243,12 @@
 
   function doubaoComposerRoot(editor) {
     return editor.closest('#input-engine-container') || editor.parentElement;
+  }
+
+  function readDoubaoPrompt(editor) {
+    return editor instanceof HTMLTextAreaElement
+      ? editor.value
+      : (editor.innerText || editor.textContent || '');
   }
 
   function doubaoUploadIsBusy(root) {
@@ -345,7 +311,7 @@
       fileNodes: root?.querySelectorAll(
         'img, [data-file-name], [data-filename], [class*="attachment" i], [class*="upload" i]',
       ).length || 0,
-      prompt: composer.editor.value,
+      prompt: readDoubaoPrompt(composer.editor),
       sendButton: composer.sendButton?.id || composer.sendButton?.className || '',
     });
   }
@@ -403,7 +369,7 @@
         isEnabled(composer.sendButton) &&
         !doubaoUploadIsBusy(root)
       );
-      const value = composer?.editor?.value || '';
+      const value = composer?.editor ? readDoubaoPrompt(composer.editor) : '';
 
       if (
         usable &&
@@ -428,111 +394,11 @@
     let composer = await waitForStableDoubaoComposer(timeoutMs, stableDuration);
     if (!composer) return null;
 
-    if (prompt.trim() && composer.editor.value !== prompt) {
+    if (prompt.trim() && readDoubaoPrompt(composer.editor).trim() !== prompt.trim()) {
       setDoubaoPrompt(composer.editor, prompt);
       composer = await waitForStableDoubaoComposer(timeoutMs, stableDuration);
     }
     return composer;
-  }
-
-  function invokeFrameworkSubmit(composer) {
-    let invoked = false;
-    const clickHandler = composer.sendButton
-      ? findFrameworkHandler(composer.sendButton, 'onClick', 'click')
-      : null;
-    if (clickHandler) {
-      try {
-        clickHandler.handler(createFrameworkEvent(clickHandler.element));
-        invoked = true;
-      } catch (_error) {
-        // Continue to the keyboard path when Doubao changes handler internals.
-      }
-    }
-
-    const keyHandler = findFrameworkHandler(composer.editor, 'onKeyDown', 'keydown');
-    if (keyHandler) {
-      try {
-        keyHandler.handler(createFrameworkEvent(keyHandler.element, {
-          key: 'Enter',
-          code: 'Enter',
-          keyCode: 13,
-          which: 13,
-          shiftKey: false,
-          metaKey: false,
-          ctrlKey: false,
-          altKey: false,
-          nativeEvent: {
-            isTrusted: true,
-            key: 'Enter',
-            code: 'Enter',
-            keyCode: 13,
-            which: 13,
-          },
-        }));
-        invoked = true;
-      } catch (_error) {
-        // Synthetic DOM events and the manual fallback remain available.
-      }
-    }
-    return invoked;
-  }
-
-  function dispatchDoubaoPointerSequence(button) {
-    if (!button) return;
-    const rect = button.getBoundingClientRect();
-    const common = {
-      bubbles: true,
-      cancelable: true,
-      composed: true,
-      clientX: rect.left + rect.width / 2,
-      clientY: rect.top + rect.height / 2,
-      button: 0,
-      buttons: 1,
-      view: window,
-    };
-
-    button.focus({ preventScroll: true });
-    if (typeof PointerEvent === 'function') {
-      for (const type of ['pointerover', 'pointerenter', 'pointermove', 'pointerdown']) {
-        button.dispatchEvent(new PointerEvent(type, {
-          ...common,
-          pointerId: 1,
-          pointerType: 'mouse',
-          isPrimary: true,
-        }));
-      }
-    }
-    for (const type of ['mouseover', 'mouseenter', 'mousemove', 'mousedown']) {
-      button.dispatchEvent(new MouseEvent(type, common));
-    }
-
-    const released = { ...common, buttons: 0 };
-    if (typeof PointerEvent === 'function') {
-      button.dispatchEvent(new PointerEvent('pointerup', {
-        ...released,
-        pointerId: 1,
-        pointerType: 'mouse',
-        isPrimary: true,
-      }));
-    }
-    button.dispatchEvent(new MouseEvent('mouseup', released));
-    button.dispatchEvent(new MouseEvent('click', released));
-  }
-
-  function dispatchDoubaoEnter(editor) {
-    const init = {
-      key: 'Enter',
-      code: 'Enter',
-      keyCode: 13,
-      which: 13,
-      bubbles: true,
-      cancelable: true,
-      composed: true,
-    };
-    editor.focus();
-    editor.dispatchEvent(new KeyboardEvent('keydown', init));
-    editor.dispatchEvent(new KeyboardEvent('keypress', init));
-    editor.dispatchEvent(new KeyboardEvent('keyup', init));
   }
 
   function doubaoAttachmentCount(editor) {
@@ -548,30 +414,28 @@
       editor: composer.editor,
       sendButton: composer.sendButton,
       initialUrl: location.href,
-      initialValue: composer.editor.value.trim(),
+      initialValue: readDoubaoPrompt(composer.editor).trim(),
       attachmentCount: doubaoAttachmentCount(composer.editor),
     };
   }
 
   async function waitForDoubaoSubmission(snapshot, timeoutMs) {
     const deadline = Date.now() + timeoutMs;
-    let disabledSince = 0;
     let missingSince = 0;
     while (Date.now() < deadline) {
       if (location.href !== snapshot.initialUrl) return true;
 
       const liveComposer = findDoubaoComposer();
       const liveEditor = liveComposer?.editor;
-      const liveValue = liveEditor?.value?.trim() || '';
+      const liveValue = liveEditor ? readDoubaoPrompt(liveEditor).trim() : '';
       const liveAttachmentCount = liveEditor ? doubaoAttachmentCount(liveEditor) : 0;
 
-      if (snapshot.initialValue && liveValue !== snapshot.initialValue) return true;
-      if (snapshot.attachmentCount && liveAttachmentCount < snapshot.attachmentCount) return true;
+      if (liveEditor && (snapshot.initialValue || snapshot.attachmentCount) &&
+          !liveValue && !liveAttachmentCount) return true;
 
       // A replaced composer is only evidence when its state also changed. Upload
       // completion itself can replace the nodes without submitting the message.
       if (!snapshot.editor.isConnected || !snapshot.sendButton?.isConnected) {
-        if (liveEditor && liveValue !== snapshot.initialValue) return true;
         if (!liveEditor) {
           if (!missingSince) missingSince = Date.now();
           if (Date.now() - missingSince >= 500) return true;
@@ -582,46 +446,40 @@
         missingSince = 0;
       }
 
-      const liveButton = liveComposer?.sendButton;
-      if (liveButton && !isEnabled(liveButton)) {
-        if (!disabledSince) disabledSince = Date.now();
-        if (Date.now() - disabledSince >= 250) return true;
-      } else {
-        disabledSince = 0;
-      }
       await delay(100);
     }
     return false;
   }
 
-  function requestDoubaoFormSubmit(composer) {
-    const form = composer.editor.closest('form') || composer.sendButton?.form || null;
-    if (!form?.requestSubmit) return false;
-
-    try {
-      if (composer.sendButton?.form === form && composer.sendButton.matches(
-        'button[type="submit"], input[type="submit"], input[type="image"]',
-      )) {
-        form.requestSubmit(composer.sendButton);
-      } else {
-        form.requestSubmit();
-      }
-      return true;
-    } catch (_error) {
-      return false;
-    }
-  }
-
   function setDoubaoPrompt(editor, prompt) {
-    if (!prompt.trim()) return;
+    if (!prompt.trim() || readDoubaoPrompt(editor).trim() === prompt.trim()) return;
 
     editor.focus();
-    editor.select();
+    const isTextArea = editor instanceof HTMLTextAreaElement;
+    if (isTextArea) {
+      editor.select();
+    } else {
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(editor);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
     let inserted = false;
     try {
       inserted = document.execCommand('insertText', false, prompt);
     } catch (_error) {
       inserted = false;
+    }
+
+    // ProseMirror must receive an editing operation so its document stays in
+    // sync. Assigning textContent only changes the DOM.
+    if (!isTextArea) {
+      window.getSelection().removeAllRanges();
+      if (readDoubaoPrompt(editor).trim() !== prompt.trim()) {
+        throw new Error('Doubao message input did not accept the prompt.');
+      }
+      return;
     }
 
     if (!inserted || editor.value !== prompt) {
@@ -653,82 +511,26 @@
   }
 
   async function submitDoubao(prompt = '') {
-    let composer = findDoubaoComposer();
-    if (!composer?.editor) throw new Error('Doubao message input is not available.');
+    const initialComposer = findDoubaoComposer();
+    if (!initialComposer?.editor) throw new Error('Doubao message input is not available.');
 
-    setDoubaoPrompt(composer.editor, prompt);
-    composer = await waitForDoubaoReady();
-
-    composer = await prepareStableDoubaoComposer(prompt) || composer;
+    setDoubaoPrompt(initialComposer.editor, prompt);
+    await waitForDoubaoReady();
+    const composer = await prepareStableDoubaoComposer(prompt);
     if (!composer?.editor?.isConnected || !isEnabled(composer.sendButton)) {
       throw new Error('Doubao message input disappeared before submission.');
     }
-    const formSnapshot = createDoubaoSubmissionSnapshot(composer);
-    if (requestDoubaoFormSubmit(composer)) {
-      if (await waitForDoubaoSubmission(formSnapshot, 2500)) {
-        pendingDoubaoUpload = null;
-        return { submitted: true, method: 'form' };
-      }
+    if (readDoubaoPrompt(composer.editor).trim() !== prompt.trim()) {
+      throw new Error('Doubao did not retain the requested prompt.');
     }
-
-    // Doubao's current composer is not a form. Clicking its own send control
-    // invokes the page's delegated submit action without fabricating a key.
-    const buttonSnapshot = createDoubaoSubmissionSnapshot(composer);
-    try {
-      composer.sendButton?.click();
-    } catch (_error) {
-      // Continue to the page handler and keyboard fallbacks.
-    }
-    if (await waitForDoubaoSubmission(buttonSnapshot, 3500)) {
-      pendingDoubaoUpload = null;
-      return { submitted: true, method: 'button' };
-    }
-
-    // Upload completion can replace the composer after the first click. Wait for
-    // the latest controls to settle, then emit the pointer/mouse sequence that a
-    // delegated Doubao click listener normally receives.
-    composer = await prepareStableDoubaoComposer(prompt) || composer;
-    const pointerSnapshot = createDoubaoSubmissionSnapshot(composer);
-    dispatchDoubaoPointerSequence(composer.sendButton);
-    if (await waitForDoubaoSubmission(pointerSnapshot, 3500)) {
-      pendingDoubaoUpload = null;
-      return { submitted: true, method: 'pointer' };
-    }
-
-    composer = await prepareStableDoubaoComposer(prompt) || composer;
-    const frameworkSnapshot = createDoubaoSubmissionSnapshot(composer);
-    invokeFrameworkSubmit(composer);
-    dispatchDoubaoEnter(composer.editor);
-    if (await waitForDoubaoSubmission(frameworkSnapshot, 4000)) {
-      pendingDoubaoUpload = null;
-      return { submitted: true, method: 'framework' };
-    }
-
-    // Final retry: reacquire the newest live controls and require them to remain
-    // stable before clicking Doubao's own button once more.
-    const retryComposer = await prepareStableDoubaoComposer(prompt, 6000, 800);
-    if (retryComposer?.editor && retryComposer.sendButton) {
-      const retrySnapshot = createDoubaoSubmissionSnapshot(retryComposer);
-      try {
-        retryComposer.sendButton.click();
-      } catch (_error) {
-        // Fall through to the explicit manual action below.
-      }
-      if (await waitForDoubaoSubmission(retrySnapshot, 3500)) {
-        pendingDoubaoUpload = null;
-        return { submitted: true, method: 'button-retry' };
-      }
-      retryComposer.editor.focus();
-    } else {
-      composer.editor.focus();
+    const snapshot = createDoubaoSubmissionSnapshot(composer);
+    composer.sendButton.click();
+    if (!await waitForDoubaoSubmission(snapshot, 6000)) {
+      throw new Error('Doubao did not confirm that the message was submitted.');
     }
 
     pendingDoubaoUpload = null;
-    return {
-      submitted: false,
-      method: 'manual-enter',
-      requiresUserAction: true,
-    };
+    return { submitted: true, method: 'button' };
   }
 
   function postResult(action, requestId, ok, error = '', details = {}) {

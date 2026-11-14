@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "One AI Shortcut",
-  "short_name": "One Shortcut",
-  "version": "1.4.1",
-  "description": "Personal Chrome tools for broadcasting prompts and attachments, unifying shortcuts, and improving AI chat workflows.",
+  "name": "Relay",
+  "short_name": "Relay",
+  "version": "2.0.0",
+  "description": "Search Google or send prompts and files to AI services from your new tab.",
   "homepage_url": "https://github.com/algorirhy/one-ai-shortcut",
-  "permissions": ["tabs", "notifications"],
+  "permissions": ["tabs", "notifications", "storage"],
   "commands": {
     "new-chat": {
       "suggested_key": {
@@ -19,10 +19,10 @@
     "service_worker": "background.js"
   },
   "icons": {
-    "16": "icons/icon-16.png",
-    "32": "icons/icon-32.png",
-    "48": "icons/icon-48.png",
-    "128": "icons/icon-128.png"
+    "16": "icons/relay-16.png",
+    "32": "icons/relay-32.png",
+    "48": "icons/relay-48.png",
+    "128": "icons/relay-128.png"
   },
   "content_scripts": [
     {
@@ -31,9 +31,22 @@
         "https://www.doubao.com/*",
         "https://doubao.com/*"
       ],
-      "js": ["page-main.js"],
+      "js": ["sites.js", "attachments.js", "page-main.js"],
       "run_at": "document_start",
       "world": "MAIN"
+    },
+    {
+      "matches": ["https://www.google.com/*", "https://google.com/*"],
+      "include_globs": [
+        "*://*.google.com/ai",
+        "*://*.google.com/ai/*",
+        "*://*.google.com/ai?*",
+        "*://*.google.com/aimode*",
+        "*://*.google.com/webhp?*aep=11*",
+        "*://*.google.com/search?*udm=50*"
+      ],
+      "js": ["sites.js", "attachments.js", "content.js"],
+      "run_at": "document_idle"
     },
     {
       "matches": [
@@ -46,15 +59,18 @@
         "https://www.doubao.com/*",
         "https://doubao.com/*"
       ],
-      "js": ["sites.js", "content.js"],
+      "js": ["sites.js", "attachments.js", "content.js"],
       "run_at": "document_idle"
     }
   ],
   "action": {
-    "default_popup": "popup.html",
+    "default_title": "Open Relay",
     "default_icon": {
-      "16": "icons/icon-16.png",
-      "32": "icons/icon-32.png"
+      "16": "icons/relay-16.png",
+      "32": "icons/relay-32.png"
     }
+  },
+  "chrome_url_overrides": {
+    "newtab": "newtab.html"
   }
 }

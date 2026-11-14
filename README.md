@@ -1,11 +1,9 @@
 <p align="center">
-  <img src="./icons/icon.svg" width="104" height="104" alt="One AI Shortcut logo" />
+  <img src="./icons/relay-256.png" width="72" height="72" alt="Relay logo" />
 </p>
 
-<h1 align="center">One AI Shortcut</h1>
-
-<p align="center">Make every AI chat work your way.</p>
-
+<h1 align="center">Relay</h1>
+<p align="center">Start with a thought.</p>
 <p align="center">
   <a href="./README.zh-CN.md">简体中文</a> ·
   <a href="#install">Install</a> ·
@@ -13,92 +11,54 @@
   <a href="./CHANGELOG.md">Changelog</a>
 </p>
 
-## What it does
-
-One AI Shortcut is a personal Chrome extension for improving everyday workflows across AI chat websites. Its current tools broadcast prompts and attachments, open fresh conversations, and provide consistent chat shortcuts.
-
-- Broadcast text, images, and files to any combination of six supported chatbots.
-- Start every delivery in a fresh conversation.
-- Add up to five attachments by file picker or drag and drop; text is optional.
-- Reuse an existing service tab when possible, or open an inactive tab when needed.
-- Deliver to each service independently, retry unconfirmed submissions, and notify only when something fails or needs manual action.
-- Keep a consistent new-chat shortcut across supported websites.
-
-The extension has no runtime dependencies, backend, analytics, or separate account system.
-
-## Supported chatbots
-
-| Chatbot | Website | Message | Attachments | Fresh chat |
-| --- | --- | :---: | :---: | :---: |
-| ChatGPT | `chatgpt.com` | ✓ | ✓ | ✓ |
-| Claude | `claude.ai` | ✓ | ✓ | ✓ |
-| Gemini | `gemini.google.com` | ✓ | ✓ | ✓ |
-| Grok | `grok.com` | ✓ | ✓ | ✓ |
-| DeepSeek | `chat.deepseek.com` | ✓ | ✓ | ✓ |
-| Doubao | `doubao.com` | ✓ | ✓ | ✓ |
-
-Attachment availability still depends on each service's current product, account, region, supported formats, and upload limits.
+Relay turns Chrome's new tab into a launcher for Google search, ChatGPT, Claude, Gemini, Grok, DeepSeek, and Doubao. Its English interface follows your system theme. Load it directly from the repository.
 
 ## Install
 
-1. Download or clone this repository.
-2. Open `chrome://extensions` in Chrome.
-3. Enable **Developer mode**.
-4. Click **Load unpacked** and select the project folder.
+1. Open `chrome://extensions` and enable **Developer mode**.
+2. Click **Load unpacked** and select the project root containing `manifest.json`.
+3. Optionally pin Relay to the toolbar for quick access.
 
-After updating the source, reload the extension and refresh any already-open chatbot pages.
+After updating the files, click **Reload** on the extension, refresh any open provider pages, and open a new tab. If another extension replaces the new tab, disable it to use Relay.
 
 ## Use
 
-1. Sign in to the services you want to use.
-2. Open the extension popup.
-3. Enter a prompt, add attachments, and choose the destinations.
-4. Click **Send**, or press `Command+Enter` / `Ctrl+Enter`.
+Open a new tab or click Relay in the toolbar. Pick a service and press **Enter** when your draft is ready. Single mode uses the current tab for the search or fresh chat. An empty draft opens the selected service.
 
-The popup closes once Chrome accepts the background job. The extension then prepares a fresh chat for every selected service, uploads the shared attachments, submits the prompt, and verifies page-level evidence of submission. Successful broadcasts stay silent.
+Turn on **Multiple services** to use any combination of the seven destinations. All seven are initially selected. The launcher stays open; Google gets a new background tab, and each chat service reuses a matching tab (preferring this window) or opens a new one. Each new launcher defaults to single mode and remembers the last single-service choice.
 
-Existing tabs in the current window are preferred. A reused tab is navigated to a new chat; if no matching tab exists, an inactive tab is created. One service failing does not stop the others.
+### Attachments
 
-### Doubao fallback
+Click **Attach**, drop files onto the composer, or paste an image from the clipboard. Relay allows up to **5 files**, **10 MiB per file** and **20 MiB total**. Supported formats and availability depend on the selected provider. The six chat services also accept file-only drafts when their site supports it.
 
-Doubao may occasionally prepare the prompt and attachments but reject automated submission. In that case, the extension activates the prepared tab and asks you to press Enter. This is a deliberate fallback for a third-party page that does not expose a stable submission API.
+With files attached, Google uses [Google AI Mode](https://support.google.com/websearch/answer/16011537?co=GENIE.Platform%3DDesktop&hl=en) and requires a question. Without files, Google still uses ordinary web search. Sign in to the selected services before sending.
 
 ## Shortcuts
 
-- `Shift+Command+O` / `Ctrl+Shift+O`: start a new chat on the current supported website.
-- `Command+K` / `Ctrl+K`: search chats using each website's search command; the extension maps Gemini to this common shortcut.
+| Where | Shortcut | Action |
+| --- | --- | --- |
+| New tab | `Enter` / `Shift+Enter` | Submit / insert a newline. IME confirmation does not submit. |
+| New tab | `Option+1–7` / `Alt+1–7` | Select a service; in multiple mode, toggle its selection. Order: Google, ChatGPT, Claude, Gemini, Grok, DeepSeek, Doubao. |
+| New tab, outside editors | `/` | Focus the input. |
+| Supported AI website | `Command+Shift+O` / `Ctrl+Shift+O` | Start a new chat. Customize at `chrome://extensions/shortcuts`. |
+| Supported AI website | `Command+K` / `Ctrl+K` | Search conversations using the site's command; Gemini is mapped to this shortcut. |
 
-Change the new-chat shortcut at `chrome://extensions/shortcuts` if it conflicts with another extension.
+Page shortcuts work after focus enters the page. Chrome may initially keep focus in the address bar.
 
-## Privacy and permissions
+## Delivery and recovery
 
-Messages and attachments are processed locally in memory and sent only to the services selected in the popup. The extension does not store content or usage data, intercept chatbot responses, or send anything to a developer-controlled server.
+Each destination runs independently. **Opened Google search** means a tab opened; **Sent to …** means the site showed evidence of submission. If Relay cannot confirm a send, check the destination before retrying. Most chat adapters retry once; Doubao and Google AI Mode click Send at most once.
 
-| Permission | Purpose |
-| --- | --- |
-| `tabs` | Find, reuse, navigate, or create supported service tabs. |
-| `notifications` | Report failed deliveries or a required manual submission. |
+A failed or interrupted task keeps a temporary draft. If a single delivery fails and the tab is still on the page Relay opened, it returns to the launcher. Restored drafts show files marked **(add again)**; reselect or remove them before retrying. A multiple-service draft that stays open keeps its selected files. **Copy prompt** copies only the text.
 
-Each selected service processes the content under its own terms and privacy policy. See [PRIVACY.md](./PRIVACY.md) for details.
+If a site's controls are unavailable, check your sign-in and account access, then try the site directly. For Google AI Mode, you can attach files using Google's own controls.
 
-## Limits
+## Privacy
 
-- Up to 5 attachments, 10 MB per file, and 20 MB total per broadcast.
-- You must already be signed in to each selected service.
-- Supported file types and account features are determined by each chatbot.
-- Delivery depends on third-party page structure and may need maintenance after website updates.
-- Reusing a tab replaces its current page with a fresh chat; conversation history remains subject to the service's own behavior.
+Relay uses temporary session storage for draft recovery and keeps attachment contents in memory. See [Privacy and permissions](./PRIVACY.md) for the stored fields, cleanup rules, and site access.
 
 ## Development
 
-No build step or runtime dependencies are required. Run the Node.js test suite from the repository root:
+See the [development guide](./docs/DEVELOPMENT.md) for architecture, site adapters, tests, and release checks.
 
-```bash
-node --test tests/*.test.js
-```
-
-See [docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md) for architecture, site-specific integration notes, manual testing, and the release checklist.
-
-## License
-
-[MIT](./LICENSE) · [GitHub repository](https://github.com/algorirhy/one-ai-shortcut)
+[MIT](./LICENSE) · [GitHub](https://github.com/algorirhy/one-ai-shortcut)

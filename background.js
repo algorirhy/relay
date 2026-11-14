@@ -1,12 +1,11 @@
 // Background service worker.
 // Coordinates keyboard shortcuts and prompt delivery across supported AI sites.
 
-importScripts('sites.js');
+importScripts('sites.js', 'attachments.js');
 
-const LOG_PREFIX = '[One AI Shortcut]';
+const LOG_PREFIX = '[Relay]';
 const siteLocks = new Map();
-const broadcastJobs = new Map();
-let nextBroadcastJobId = 1;
+let nextLauncherJobId = 1;
 
 function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -16,14 +15,14 @@ function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function notifyBroadcastError(error) {
+async function notifyDeliveryError(error) {
   if (!chrome.notifications?.create) return;
 
   try {
     await chrome.notifications.create({
       type: 'basic',
-      iconUrl: 'icons/icon-128.png',
-      title: 'Message was not sent',
+      iconUrl: 'icons/relay-128.png',
+      title: 'Delivery could not be confirmed',
       message: errorMessage(error),
       priority: 1,
     });
@@ -83,9 +82,9 @@ async function waitForContentScript(tabId, siteId, timeoutMs = 15000) {
   throw new Error('The page loaded, but its automation script did not become ready.');
 }
 
-async function createSiteTab(site, preferredWindowId) {
+async function createBackgroundTab(url, preferredWindowId) {
   const createOptions = {
-    url: OneAIShortcut.getNewChatUrl(site.id),
+    url,
     active: false,
   };
 
@@ -102,64 +101,33 @@ async function createSiteTab(site, preferredWindowId) {
   }
 }
 
-async function prepareNewChat(site, preferredWindowId) {
-  const existingTab = await findFirstSiteTab(site, preferredWindowId);
-  let tab;
-  let reused;
-
-  if (existingTab) {
-    const newChatUrl = OneAIShortcut.getNewChatUrl(site.id, existingTab.url);
-    tab = await chrome.tabs.update(existingTab.id, { url: newChatUrl });
-    reused = true;
-  } else {
-    tab = await createSiteTab(site, preferredWindowId);
-    reused = false;
-  }
-
-  if (!Number.isInteger(tab?.id)) {
-    throw new Error('Chrome did not return a usable tab.');
-  }
-
-  await waitForTabComplete(tab.id);
-  await waitForContentScript(tab.id, site.id);
-  return { tabId: tab.id, reused };
+function isLauncherUrl(value) {
+  try {
+    const url = new URL(value);
+    const launcher = new URL(chrome.runtime.getURL('newtab.html'));
+    return url.protocol === launcher.protocol && url.host === launcher.host && url.pathname === launcher.pathname;
+  } catch { return false; }
 }
 
-async function deliverPrompt(site, prompt, attachments, preferredWindowId) {
-  const { tabId, reused } = await prepareNewChat(site, preferredWindowId);
-  const response = await chrome.tabs.sendMessage(tabId, {
-    action: 'submit-prompt',
-    prompt,
-    attachments,
-  });
+function isLauncherTab(tab) {
+  // Chrome exposes a real overridden new tab as chrome://newtab/ in tabs,
+  // while its authenticated message sender URL is the extension document.
+  // Keep sender validation strict; only this tab-state check accepts the alias.
+  const isLauncherAddress = (url) => isLauncherUrl(url) || url === 'chrome://newtab/' || url === 'chrome://newtab';
+  return isLauncherAddress(tab.url) && (!tab.pendingUrl || isLauncherAddress(tab.pendingUrl));
+}
 
-  if (!response?.ok) {
-    throw new Error(response?.error || 'The site did not confirm that the prompt was sent.');
+async function prepareNewChat(site, job) {
+  if (!job.multiple) {
+    const current = await chrome.tabs.get(job.tabId);
+    if (!isLauncherTab(current)) throw new Error('The launcher tab was changed before sending.');
   }
-
-  if (response.requiresUserAction) {
-    await chrome.tabs.update(tabId, { active: true });
-    return {
-      siteId: site.id,
-      name: site.name,
-      ok: false,
-      requiresUserAction: true,
-      tabId,
-      reused,
-      method: response.method,
-      attachmentCount: response.attachmentCount || 0,
-    };
-  }
-
-  return {
-    siteId: site.id,
-    name: site.name,
-    ok: true,
-    tabId,
-    reused,
-    method: response.method,
-    attachmentCount: response.attachmentCount || 0,
-  };
+  const existing = job.multiple
+    ? (site.id === 'google' ? null : await findFirstSiteTab(site, job.windowId))
+    : { id: job.tabId };
+  const url = site.aiModeUrl || RelaySites.getNewChatUrl(site.id, existing?.url);
+  const tab = await (existing ? chrome.tabs.update(existing.id, { url }) : createBackgroundTab(url, job.windowId));
+  return { tabId: tab?.id, url };
 }
 
 function runWithSiteLock(siteId, task) {
@@ -175,34 +143,26 @@ function runWithSiteLock(siteId, task) {
 }
 
 async function notifyResults(results) {
-  const manualSubmissions = results.filter((result) => result.requiresUserAction);
-  const failures = results.filter((result) => !result.ok && !result.requiresUserAction);
-  if (!manualSubmissions.length && !failures.length) return;
+  const failures = results.filter((result) => !result.ok);
+  if (!failures.length) return;
   if (!chrome.notifications?.create) return;
 
-  const successCount = results.filter((result) => result.ok).length;
-  let title;
-  let message;
+  const successCount = results.filter((result) => result.ok && result.method !== 'search').length;
+  const aiTotal = results.filter((result) => result.method !== 'search').length;
+  const failedNames = failures.map((result) => result.name).join(', ');
+  const title = results.some((result) => result.method === 'search')
+    ? 'Some requests did not finish'
+    : 'Some messages were not confirmed';
+  let message = successCount
+    ? `Sent to ${successCount} of ${aiTotal}. Could not confirm: ${failedNames}.`
+    : `Could not confirm: ${failedNames}.`;
 
-  if (manualSubmissions.length && !failures.length) {
-    const names = manualSubmissions.map((result) => result.name).join(', ');
-    title = `${names} ${manualSubmissions.length === 1 ? 'is' : 'are'} ready`;
-    message = `The message and attachments are prepared in ${names}. Press Enter to send.`;
-  } else {
-    const failedNames = failures.map((result) => result.name).join(', ');
-    title = 'Some messages were not sent';
-    const manualNames = manualSubmissions.map((result) => result.name).join(', ');
-    message = manualSubmissions.length
-      ? `Sent to ${successCount}; press Enter in ${manualNames}. Failed: ${failedNames}.`
-      : successCount
-      ? `Sent to ${successCount} of ${results.length}. Failed: ${failedNames}.`
-      : `No messages were sent. Failed: ${failedNames}.`;
-  }
+  if (results.some((result) => result.ok && result.method === 'search')) message = `Google search opened. ${message}`;
 
   try {
     await chrome.notifications.create({
       type: 'basic',
-      iconUrl: 'icons/icon-128.png',
+      iconUrl: 'icons/relay-128.png',
       title,
       message,
       priority: 1,
@@ -212,119 +172,171 @@ async function notifyResults(results) {
   }
 }
 
-async function broadcastPrompt(message) {
-  const prompt = typeof message.prompt === 'string' ? message.prompt : '';
-  const attachments = normalizeAttachments(message.attachments);
-  if (!prompt.trim() && !attachments.length) {
-    throw new Error('Enter a message or add an attachment before sending.');
-  }
-
-  const requestedIds = new Set(
-    Array.isArray(message.siteIds) ? message.siteIds : [],
-  );
-  const selectedSites = OneAIShortcut.sites.filter((site) => requestedIds.has(site.id));
-
-  if (!selectedSites.length) {
-    throw new Error('Select at least one AI chatbot.');
-  }
-
-  const results = await Promise.all(selectedSites.map((site) => (
-    runWithSiteLock(site.id, async () => {
-      try {
-        return await deliverPrompt(site, prompt, attachments, message.preferredWindowId);
-      } catch (error) {
-        console.error(`${LOG_PREFIX} ${site.name}:`, error);
-        return {
-          siteId: site.id,
-          name: site.name,
-          ok: false,
-          error: errorMessage(error),
-        };
+function deliverToChatService(site, job, attachments, navigation) {
+  return runWithSiteLock(site.id, async () => {
+    try {
+      const { tabId, url } = await prepareNewChat(site, job);
+      if (!Number.isInteger(tabId)) throw new Error('Chrome did not return a usable tab.');
+      if (!job.multiple) navigation.url = url;
+      const initialPage = await waitForTabComplete(tabId);
+      if (!job.multiple && site.id === 'google' && RelaySites.isGoogleAiPage(initialPage.url)) {
+        navigation.url = initialPage.url; // Google redirects its public AI Mode entry point.
       }
-    })
-  )));
-
-  await notifyResults(results);
-
-  return {
-    ok: results.every((result) => result.ok),
-    successCount: results.filter((result) => result.ok).length,
-    failureCount: results.filter((result) => !result.ok).length,
-    results,
-  };
+      await waitForContentScript(tabId, site.id);
+      const loaded = await chrome.tabs.get(tabId);
+      if (loaded.pendingUrl && loaded.pendingUrl !== loaded.url) {
+        throw new Error('The destination page changed before sending.');
+      }
+      if (!(site.id === 'google' ? RelaySites.isGoogleAiPage(loaded.url) : RelaySites.findSiteByUrl(loaded.url)?.id === site.id)) {
+        throw new Error('The destination page changed before sending.');
+      }
+      const response = await chrome.tabs.sendMessage(tabId, {
+        action: 'submit-prompt',
+        prompt: job.prompt,
+        attachments,
+      });
+      if (!response?.ok) throw new Error(response?.error || 'The site did not confirm submission.');
+      return { siteId: site.id, name: site.name, ok: true, method: response.method };
+    } catch (error) {
+      console.error(`${LOG_PREFIX} ${site.name}:`, error);
+      return { siteId: site.id, name: site.name, ok: false, error: errorMessage(error) };
+    }
+  });
 }
 
-function normalizeAttachments(value) {
-  if (!Array.isArray(value)) return [];
-  const limits = OneAIShortcut.attachmentLimits;
+// One session-only recovery record per launcher tab; no permanent prompt log.
+const launcherTasks = new Map();
+const launcherKey = (tabId) => `launcher:${tabId}`;
 
-  if (value.length > limits.maxFiles) {
-    throw new Error(`You can send up to ${limits.maxFiles} attachments at once.`);
+function launcherTab(sender) {
+  if (!Number.isInteger(sender?.tab?.id) || !isLauncherUrl(sender.url || sender.tab.url)) {
+    throw new Error('This action is only available from the new-tab launcher.');
   }
-
-  let totalSize = 0;
-  return value.map((attachment, index) => {
-    const name = typeof attachment?.name === 'string' && attachment.name.trim()
-      ? attachment.name.trim()
-      : `attachment-${index + 1}`;
-    const type = typeof attachment?.type === 'string'
-      ? attachment.type
-      : 'application/octet-stream';
-    const size = Number(attachment?.size);
-    const dataUrl = typeof attachment?.dataUrl === 'string' ? attachment.dataUrl : '';
-
-    if (!Number.isFinite(size) || size < 0 || size > limits.maxFileSizeBytes) {
-      throw new Error(`${name} exceeds the per-file size limit.`);
-    }
-    if (!/^data:[^,]*;base64,/i.test(dataUrl)) {
-      throw new Error(`${name} does not contain valid attachment data.`);
-    }
-
-    totalSize += size;
-    if (totalSize > limits.maxTotalSizeBytes) {
-      throw new Error('The selected attachments exceed the total size limit.');
-    }
-
-    return {
-      name,
-      type,
-      size,
-      lastModified: Number.isFinite(attachment.lastModified)
-        ? attachment.lastModified
-        : Date.now(),
-      dataUrl,
-    };
-  });
+  return sender.tab;
 }
 
-function startBroadcastJob(message) {
-  const jobId = `broadcast-${Date.now()}-${nextBroadcastJobId++}`;
-  const job = broadcastPrompt(message).catch(async (error) => {
-    await notifyBroadcastError(error);
-    return {
-      ok: false,
-      successCount: 0,
-      failureCount: 0,
-      results: [],
-      error: errorMessage(error),
-    };
-  });
-
-  broadcastJobs.set(jobId, job);
-  void job.finally(() => {
-    // Keep the completed promise through the current task so callers that
-    // just received the acknowledgement can still observe it in tests/debugging.
-    setTimeout(() => broadcastJobs.delete(jobId), 0);
-  });
-  return jobId;
+async function readLauncherJob(tabId) {
+  const key = launcherKey(tabId);
+  let job = (await chrome.storage.session.get(key))[key];
+  if (!job) return null;
+  if (Date.now() - job.createdAt > 60 * 60 * 1000) {
+    await chrome.storage.session.remove(key);
+    return null;
+  }
+  if (job.state === 'pending' && !launcherTasks.has(tabId)) {
+    job = { ...job, state: 'interrupted', error: 'Delivery was interrupted. Check the service before retrying.' };
+    await chrome.storage.session.set({ [key]: job });
+  }
+  return job;
 }
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.action !== 'broadcast-prompt') return false;
+async function openGoogleSearch(job) {
+  const result = { siteId: 'google', name: RelaySites.google.name, method: 'search' };
+  try {
+    const tab = await createBackgroundTab(RelaySites.getLaunchUrl('google', job.prompt), job.windowId);
+    if (!Number.isInteger(tab?.id)) throw new Error('Chrome did not return a usable search tab.');
+    return { ...result, ok: true };
+  } catch (error) {
+    return { ...result, ok: false, error: errorMessage(error) };
+  }
+}
 
-  const jobId = startBroadcastJob(message);
-  sendResponse({ accepted: true, jobId });
-  return false;
+async function runLauncherJob(job, attachments) {
+  try {
+    const navigation = {};
+    const results = await Promise.all(RelaySites.launcherServices
+      .filter((site) => job.siteIds.includes(site.id))
+      .map((site) => {
+        if (site.id !== 'google') return deliverToChatService(site, job, attachments, navigation);
+        if (!attachments.length) return openGoogleSearch(job);
+        return deliverToChatService({ ...site, name: 'Google AI Mode' }, job, attachments, navigation);
+      }));
+    const result = { ok: results.every((item) => item.ok), results };
+    await notifyResults(results);
+    // Do not recreate a recovery record after the source tab has been closed.
+    try { await chrome.tabs.get(job.tabId); } catch {
+      await chrome.storage.session.remove(launcherKey(job.tabId));
+      return;
+    }
+    await chrome.storage.session.set({ [launcherKey(job.tabId)]: {
+      ...job, state: 'complete', result,
+      prompt: result.ok ? '' : job.prompt,
+      files: result.ok ? [] : job.files,
+    } });
+    if (!job.multiple && !result.ok && navigation.url) {
+      const tab = await chrome.tabs.get(job.tabId);
+      // A login redirect or user navigation must not be overwritten.
+      if (!tab.pendingUrl && tab.url === navigation.url) {
+        await chrome.tabs.update(job.tabId, { url: chrome.runtime.getURL('newtab.html') });
+      }
+    }
+  } catch (error) {
+    console.error(`${LOG_PREFIX} Launcher delivery:`, error);
+    await notifyDeliveryError(error);
+  } finally {
+    if (launcherTasks.get(job.tabId) === job.id) launcherTasks.delete(job.tabId);
+  }
+}
+
+async function startLauncherJob(message, sender, sendResponse) {
+  const tab = launcherTab(sender);
+  if (launcherTasks.has(tab.id)) throw new Error('This tab already has a delivery in progress.');
+  const multiple = message.multiple === true;
+  const ids = [...new Set(Array.isArray(message.siteIds) ? message.siteIds : [])];
+  const attachments = RelayAttachments.validatePayload(message.attachments);
+  if (!ids.length || (!multiple && ids.length !== 1) ||
+      ids.some((id) => id === 'google' ? !multiple && !attachments.length : !RelaySites.getSite(id))) {
+    throw new Error('Select valid destinations before sending.');
+  }
+  if (typeof message.prompt !== 'string' || (!message.prompt.trim() && !attachments.length)) {
+    throw new Error('Enter a message or add a file before sending.');
+  }
+  if (ids.includes('google') && attachments.length && !message.prompt.trim()) {
+    throw new Error('Enter a question to use the files in Google AI Mode.');
+  }
+  const job = {
+    id: `launcher-${Date.now()}-${nextLauncherJobId++}`, tabId: tab.id, windowId: tab.windowId,
+    createdAt: Date.now(), prompt: message.prompt, siteIds: ids, multiple, state: 'pending',
+    files: attachments.map(RelayAttachments.metadata),
+  };
+  launcherTasks.set(tab.id, job.id);
+  try {
+    // Save text and file metadata before navigation; bytes stay in memory only.
+    await chrome.storage.session.set({ [launcherKey(tab.id)]: job });
+  } catch (error) {
+    launcherTasks.delete(tab.id);
+    throw new Error(`Could not keep a recovery draft. Nothing was sent. ${errorMessage(error)}`);
+  }
+  sendResponse({ accepted: true, jobId: job.id });
+  void runLauncherJob(job, attachments);
+}
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (!['launch-prompt', 'launcher-job', 'clear-launcher-job'].includes(message?.action)) return false;
+  void (async () => {
+    if (message.action === 'launch-prompt') {
+      await startLauncherJob(message, sender, sendResponse);
+      return;
+    }
+    const tab = launcherTab(sender);
+    const job = await readLauncherJob(tab.id);
+    if (message.action === 'clear-launcher-job') {
+      if (job && job.id === message.jobId && job.state !== 'pending' && !launcherTasks.has(tab.id)) {
+        await chrome.storage.session.remove(launcherKey(tab.id));
+      }
+      sendResponse({ ok: true });
+    } else sendResponse({ ok: true, job });
+  })().catch((error) => sendResponse({ accepted: false, error: errorMessage(error) }));
+  return true;
+});
+
+chrome.action.onClicked.addListener((tab) => {
+  chrome.tabs.create({ windowId: tab.windowId, url: chrome.runtime.getURL('newtab.html') })
+    .catch((error) => console.error(`${LOG_PREFIX} Could not open Relay:`, error));
+});
+
+chrome.tabs.onRemoved?.addListener((tabId) => {
+  void chrome.storage.session.remove(launcherKey(tabId)).catch(console.error);
 });
 
 chrome.commands.onCommand.addListener(async (command) => {

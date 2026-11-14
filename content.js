@@ -4,7 +4,7 @@
 (() => {
   'use strict';
 
-  const LOG_PREFIX = '[One AI Shortcut]';
+  const LOG_PREFIX = '[Relay]';
   const IS_MAC = navigator.platform.toUpperCase().includes('MAC');
   const USER_MESSAGE_SELECTORS = [
     '[data-message-author-role="user"]',
@@ -17,7 +17,7 @@
   ];
 
   function currentSite() {
-    return OneAIShortcut.findSiteByUrl(window.location.href);
+    return RelaySites.findSiteByUrl(window.location.href);
   }
 
   function delay(milliseconds) {
@@ -100,7 +100,7 @@
   }
 
   function navigateToNewChat(site) {
-    const url = OneAIShortcut.getNewChatUrl(site.id, window.location.href);
+    const url = RelaySites.getNewChatUrl(site.id, window.location.href);
     if (url) window.location.href = url;
   }
 
@@ -142,7 +142,7 @@
   }
 
   function handleNewChatShortcut(event) {
-    if (!matchesShortcut(event, 'o', { shiftKey: true })) return;
+    if (!currentSite() || !matchesShortcut(event, 'o', { shiftKey: true })) return;
     event.preventDefault();
     event.stopPropagation();
     handleNewChat();
@@ -268,74 +268,13 @@
     return null;
   }
 
-  function attachmentFileName(name) {
-    const normalized = typeof name === 'string' ? name.trim() : '';
-    return (normalized || 'attachment').replace(/[\\/\0]/g, '_');
-  }
-
-  function decodeAttachment(attachment) {
-    if (!attachment || typeof attachment.dataUrl !== 'string') {
-      throw new Error('An attachment could not be read.');
-    }
-
-    const match = attachment.dataUrl.match(/^data:([^;,]*)(?:;[^,]*)?;base64,(.*)$/s);
-    if (!match) throw new Error(`Could not decode ${attachmentFileName(attachment.name)}.`);
-
-    const binary = atob(match[2]);
-    const bytes = new Uint8Array(binary.length);
-    for (let index = 0; index < binary.length; index += 1) {
-      bytes[index] = binary.charCodeAt(index);
-    }
-
-    return new File([bytes], attachmentFileName(attachment.name), {
-      type: attachment.type || match[1] || 'application/octet-stream',
-      lastModified: Number.isFinite(attachment.lastModified)
-        ? attachment.lastModified
-        : Date.now(),
-    });
-  }
-
-  function inputAcceptsFile(input, file) {
-    const rules = input.accept
-      .split(',')
-      .map((rule) => rule.trim().toLowerCase())
-      .filter(Boolean);
-    if (!rules.length) return true;
-
-    const type = file.type.toLowerCase();
-    const name = file.name.toLowerCase();
-    return rules.some((rule) => (
-      rule === '*/*' ||
-      (rule.endsWith('/*') && type.startsWith(rule.slice(0, -1))) ||
-      (rule.startsWith('.') && name.endsWith(rule)) ||
-      (!rule.includes('/') && !rule.startsWith('.') && name.endsWith(`.${rule}`)) ||
-      rule === type
-    ));
-  }
-
-  function findFileInput(site, files) {
-    const candidates = [];
-    for (const selector of site.fileInputSelectors) {
-      try {
-        for (const element of document.querySelectorAll(selector)) {
-          if (
-            element instanceof HTMLInputElement &&
-            element.type === 'file' &&
-            !element.disabled &&
-            files.every((file) => inputAcceptsFile(element, file))
-          ) {
-            candidates.push(element);
-          }
-        }
-      } catch (_error) {
-        // Ignore invalid selectors after a site update.
-      }
-    }
-
-    return candidates.sort((left, right) => (
-      Number(right.multiple) - Number(left.multiple) ||
-      Number(!right.accept) - Number(!left.accept)
-    ))[0] || null;
+  function findFileInput(files) {
+    return [...document.querySelectorAll('input[type="file"]')]
+      .filter((element) => !element.disabled && files.every((file) => RelayAttachments.inputAcceptsFile(element, file)))
+      .sort((left, right) => (
+        Number(right.multiple) - Number(left.multiple) ||
+        Number(!right.accept) - Number(!left.accept)
+      ))[0] || null;
   }
 
   function matchesAnySelector(element, selectors) {
@@ -387,19 +326,19 @@
   }
 
   async function waitForFileInput(site, files, editor, timeoutMs = 6000) {
-    let input = findFileInput(site, files);
+    let input = findFileInput(files);
     if (input) return input;
 
     const clickedKnownControl = tryClickSelectors(site.attachmentButtonSelectors);
     if (!clickedKnownControl) tryClickNearbyAttachmentButton(editor, site);
     await delay(350);
-    input = findFileInput(site, files);
+    input = findFileInput(files);
     if (input) return input;
 
     tryClickByText(site.attachmentButtonTexts);
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-      input = findFileInput(site, files);
+      input = findFileInput(files);
       if (input) return input;
       await delay(150);
     }
@@ -421,7 +360,6 @@
 
   async function attachFiles(site, attachments, editor) {
     if (!attachments.length) return 0;
-    const files = attachments.map(decodeAttachment);
 
     // Gemini and Doubao bind their upload controls in the page's MAIN world.
     // Let the bridge discover and drive those controls directly; requiring an
@@ -430,28 +368,25 @@
     if (site.id === 'doubao' || site.id === 'gemini') {
       await requestPageMainWorld(site.id, 'page-attach', attachments, 30000);
       await delay(site.id === 'gemini' ? 1800 : 300);
-      return files.length;
+      return attachments.length;
     }
 
-    let input = await waitForFileInput(site, files, editor);
-
-    if (!input && files.length > 1) {
-      input = await waitForFileInput(site, [files[0]], editor);
-    }
-    if (!input) {
-      throw new Error(`${site.name} did not expose a compatible file upload control.`);
-    }
-
-    if (input.multiple || files.length === 1) {
+    const files = attachments.map(RelayAttachments.decode);
+    // Prefer one upload when a control accepts the whole batch.
+    const input = await waitForFileInput(site, files, editor);
+    if (input && (input.multiple || files.length === 1)) {
       setInputFiles(input, files);
       await delay(500);
       return files.length;
+    }
+    if (files.length === 1) {
+      throw new Error(`${site.name} did not expose a compatible upload control for ${files[0].name}.`);
     }
 
     for (const file of files) {
       const singleInput = await waitForFileInput(site, [file], editor);
       if (!singleInput) {
-        throw new Error(`${site.name} stopped accepting files after the first attachment.`);
+        throw new Error(`${site.name} did not expose a compatible upload control for ${file.name}.`);
       }
       setInputFiles(singleInput, [file]);
       await delay(500);
@@ -520,15 +455,6 @@
     });
   }
 
-  async function waitForPromptToClear(editor, prompt, timeoutMs = 2500) {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      if (!editor.isConnected || !readEditorText(editor).trim()) return true;
-      await delay(100);
-    }
-    return readEditorText(editor).trim() !== prompt.trim();
-  }
-
   function userMessageCount() {
     const messages = new Set();
     for (const selector of USER_MESSAGE_SELECTORS) {
@@ -539,6 +465,62 @@
       }
     }
     return messages.size;
+  }
+
+  async function submitGoogleAiMode(prompt, attachments) {
+    const site = RelaySites.google;
+    if (!RelaySites.isGoogleAiPage(window.location.href)) throw new Error('Google AI Mode is unavailable on this page.');
+    if (!prompt.trim() || !attachments.length) throw new Error('Google AI Mode needs a question with the files.');
+
+    const editor = await waitForPromptEditor(site, 6000).catch(() => {
+      throw new Error('Google AI Mode input is unavailable. Check that AI Mode is enabled for your account.');
+    });
+    const files = attachments.map(RelayAttachments.decode);
+    const previewCount = () => {
+      const labels = files.filter(({ name }) => document.body.innerText.includes(name)).length;
+      const thumbnails = document.querySelectorAll('img[src^="blob:"], img[src^="data:image/"]').length;
+      const controls = document.querySelectorAll(
+        'button[aria-label*="Remove" i], button[aria-label*="削除"], button[aria-label*="移除"]',
+      ).length;
+      // One file can have both a thumbnail and a remove control.
+      return Math.max(labels, thumbnails, controls);
+    };
+    const initialPreviews = previewCount();
+    const upload = findFileInput(files);
+    if (upload && (upload.multiple || files.length === 1)) {
+      setInputFiles(upload, files);
+    } else {
+      // AI Mode's composer also accepts pasted files. Dispatch only once; an
+      // upload that is slow to show a preview must not be duplicated.
+      const clipboardData = new DataTransfer();
+      for (const file of files) clipboardData.items.add(file);
+      editor.focus();
+      editor.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData }));
+    }
+
+    const deadline = Date.now() + 20000;
+    while (Date.now() < deadline && previewCount() - initialPreviews < files.length) await delay(200);
+    if (previewCount() - initialPreviews < files.length) {
+      throw new Error('Google AI Mode did not show all files. Add them directly in Google AI Mode.');
+    }
+    const liveEditor = await waitForPromptEditor(site, 6000);
+    await fillPrompt(liveEditor, prompt);
+    const send = await waitForSendButton(site, 10000);
+    if (!send) throw new Error('Google AI Mode did not expose an enabled Send button.');
+    const url = window.location.href;
+    const initialMessages = userMessageCount();
+    send.click();
+    const submissionDeadline = Date.now() + 6000;
+    while (Date.now() < submissionDeadline) {
+      const current = findVisibleElement(site.inputSelectors, isPromptEditor);
+      if ((window.location.href !== url && RelaySites.isGoogleAiPage(window.location.href)) ||
+          userMessageCount() > initialMessages ||
+          (current && !readEditorText(current).trim() && previewCount() <= initialPreviews)) {
+        return { ok: true, method: 'button' };
+      }
+      await delay(100);
+    }
+    throw new Error('Google AI Mode did not confirm that the files and question were submitted.');
   }
 
   function createSubmissionSnapshot(editor, sendButton) {
@@ -607,11 +589,8 @@
       if (!sendButton) throw new Error('Doubao did not expose an enabled send control.');
 
       const result = await requestPageMainWorld('doubao', 'page-submit', [], 70000, prompt);
-      if (result.requiresUserAction) {
-        return { method: 'manual-enter', requiresUserAction: true };
-      }
-      if (prompt.trim()) await waitForPromptToClear(editor, prompt, 8000);
-      return result.method || 'main-world';
+      if (!result.submitted) throw new Error('Doubao did not confirm that the message was submitted.');
+      return result.method;
     }
 
     let liveEditor = editor;
@@ -643,10 +622,11 @@
   }
 
   async function submitPrompt(prompt, serializedAttachments = []) {
-    const site = currentSite();
-    if (!site) throw new Error('This page is not a supported AI chatbot.');
     const normalizedPrompt = typeof prompt === 'string' ? prompt : '';
     const attachments = Array.isArray(serializedAttachments) ? serializedAttachments : [];
+    if (RelaySites.isGoogleAiPage(window.location.href)) return submitGoogleAiMode(normalizedPrompt, attachments);
+    const site = currentSite();
+    if (!site) throw new Error('This page is not a supported AI chatbot.');
     if (!normalizedPrompt.trim() && !attachments.length) {
       throw new Error('The message and attachment list are empty.');
     }
@@ -662,19 +642,16 @@
       await fillPrompt(editor, normalizedPrompt);
     }
     await delay(150);
-    const delivery = await sendPrompt(site, editor, normalizedPrompt, attachmentCount);
-    const method = typeof delivery === 'string' ? delivery : delivery.method;
-    const requiresUserAction = Boolean(delivery?.requiresUserAction);
-
-    const outcome = requiresUserAction ? 'Prepared' : 'Submitted';
-    console.log(`${LOG_PREFIX} ${outcome} a message for ${site.name} using ${method}.`);
-    return { ok: true, siteId: site.id, method, attachmentCount, requiresUserAction };
+    const method = await sendPrompt(site, editor, normalizedPrompt, attachmentCount);
+    console.log(`${LOG_PREFIX} Submitted a message for ${site.name} using ${method}.`);
+    return { ok: true, siteId: site.id, method, attachmentCount };
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.action === 'ping') {
       const site = currentSite();
-      sendResponse({ ok: Boolean(site), siteId: site?.id || null });
+      const siteId = site?.id || (RelaySites.isGoogleAiPage(window.location.href) ? 'google' : null);
+      sendResponse({ ok: Boolean(siteId), siteId });
       return false;
     }
 

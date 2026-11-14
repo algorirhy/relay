@@ -14,7 +14,7 @@ function loadSiteCatalog() {
   const context = vm.createContext({ URL });
   context.globalThis = context;
   vm.runInContext(read('sites.js'), context, { filename: 'sites.js' });
-  return context.OneAIShortcut;
+  return context.RelaySites;
 }
 
 test('site catalog has the required six chatbots in display order', () => {
@@ -23,18 +23,7 @@ test('site catalog has the required six chatbots in display order', () => {
     Array.from(catalog.sites, (site) => site.name),
     ['ChatGPT', 'Claude', 'Gemini', 'Grok', 'DeepSeek', 'Doubao'],
   );
-  for (const site of catalog.sites) {
-    assert.ok(site.fileInputSelectors.length > 0, `${site.name} has no file input selectors`);
-    assert.ok(site.attachmentButtonSelectors.length > 0, `${site.name} has no attachment button selectors`);
-  }
-  assert.deepEqual(
-    JSON.parse(JSON.stringify(catalog.attachmentLimits)),
-    {
-      maxFiles: 5,
-      maxFileSizeBytes: 10 * 1024 * 1024,
-      maxTotalSizeBytes: 20 * 1024 * 1024,
-    },
-  );
+
 });
 
 test('site catalog recognizes supported URLs and rejects unsupported URLs', () => {
@@ -64,18 +53,20 @@ test('Gemini new-chat URL preserves the existing Google account path', () => {
 
 test('manifest loads shared config before the content script', () => {
   const manifest = JSON.parse(read('manifest.json'));
-  assert.equal(manifest.name, 'One AI Shortcut');
-  assert.equal(manifest.version, '1.4.1');
-  assert.deepEqual(manifest.permissions, ['tabs', 'notifications']);
+  assert.equal(manifest.name, 'Relay');
+  assert.equal(manifest.manifest_version, 3);
+  assert.deepEqual(manifest.chrome_url_overrides, { newtab: 'newtab.html' });
+  assert.deepEqual(manifest.permissions, ['tabs', 'notifications', 'storage']);
   assert.deepEqual(manifest.icons, {
-    16: 'icons/icon-16.png',
-    32: 'icons/icon-32.png',
-    48: 'icons/icon-48.png',
-    128: 'icons/icon-128.png',
+    16: 'icons/relay-16.png',
+    32: 'icons/relay-32.png',
+    48: 'icons/relay-48.png',
+    128: 'icons/relay-128.png',
   });
+  assert.equal(manifest.action.default_popup, undefined);
   assert.deepEqual(manifest.action.default_icon, {
-    16: 'icons/icon-16.png',
-    32: 'icons/icon-32.png',
+    16: manifest.icons[16],
+    32: manifest.icons[32],
   });
   for (const iconPath of Object.values(manifest.icons)) {
     assert.equal(fs.existsSync(path.join(projectRoot, iconPath)), true, `${iconPath} is missing`);
@@ -86,58 +77,55 @@ test('manifest loads shared config before the content script', () => {
       'https://www.doubao.com/*',
       'https://doubao.com/*',
     ],
-    js: ['page-main.js'],
+    js: ['sites.js', 'attachments.js', 'page-main.js'],
     run_at: 'document_start',
     world: 'MAIN',
   });
-  assert.deepEqual(manifest.content_scripts[1].js, ['sites.js', 'content.js']);
+  const catalog = loadSiteCatalog();
+  assert.deepEqual(manifest.content_scripts[2].matches, Array.from(catalog.sites).flatMap((site) => [...site.tabPatterns]));
+  for (const entry of manifest.content_scripts.slice(1)) {
+    assert.deepEqual(entry.js, ['sites.js', 'attachments.js', 'content.js']);
+  }
 });
 
-test('popup uses external scripts compatible with Manifest V3 CSP', () => {
-  const popup = read('popup.html');
-  const popupScript = read('popup.js');
-  const contentScript = read('content.js');
-  const pageMainScript = read('page-main.js');
-  assert.match(popup, /<input id="attachment-input" type="file" multiple hidden \/>/);
-  assert.match(popup, /<h1>One AI Shortcut<\/h1>/);
-  assert.match(popup, /Make every AI chat work your way\./);
-  assert.match(popup, /<kbd>⌘↵<\/kbd> send/);
-  assert.match(popup, /<span class="version-label" id="version-label"><\/span>/);
-  assert.match(popup, /https:\/\/github\.com\/algorirhy\/one-ai-shortcut/);
-  assert.match(popup, /<script src="sites\.js"><\/script>/);
-  assert.match(popup, /<script src="popup\.js"><\/script>/);
-  assert.doesNotMatch(popup, /<script(?![^>]*\bsrc=)[^>]*>/i);
-  assert.match(popupScript, /const acknowledgement = await chrome\.runtime\.sendMessage/);
-  assert.match(popupScript, /if \(!acknowledgement\?\.accepted\)/);
-  assert.match(popupScript, /dataUrl: await fileToDataUrl\(file\)/);
-  assert.doesNotMatch(popupScript, /dataUrlPromise/);
-  assert.match(popupScript, /chrome\.runtime\.getManifest\(\)\.version/);
-  assert.match(contentScript, /waitForSubmissionEvidence/);
-  assert.match(contentScript, /for \(let attempt = 0; attempt < 2; attempt \+= 1\)/);
-  assert.match(contentScript, /'page-submit', \[\], 70000, prompt/);
-  assert.match(pageMainScript, /waitForStableDoubaoComposer/);
-  assert.match(pageMainScript, /dispatchDoubaoPointerSequence/);
-  assert.match(pageMainScript, /method: 'button-retry'/);
+test('Google attachment handling recognizes AI Mode redirects but not organic search or lookalike hosts', () => {
+  const catalog = loadSiteCatalog();
+  for (const url of [
+    catalog.google.aiModeUrl,
+    'https://www.google.com/search?udm=50&aep=11&sei=abc',
+    'https://www.google.com/webhp?hl=en&aep=11',
+  ]) assert.equal(catalog.isGoogleAiPage(url), true);
+  for (const url of [
+    'https://www.google.com/search?q=udm%3D50',
+    'https://www.google.com/search?udm=50fake',
+    'https://www.google.com/',
+    'https://google.com.evil.test/ai',
+    'http://www.google.com/ai',
+  ]) assert.equal(catalog.isGoogleAiPage(url), false);
 });
 
-test('customer-facing English copy uses AI chatbot terminology', () => {
-  const manifest = JSON.parse(read('manifest.json'));
-  const customerCopy = [
-    manifest.description,
-    read('popup.html'),
-    read('popup.js'),
-    read('README.md'),
-    read('PRIVACY.md').split('## 简体中文')[0],
-  ].join('\n');
+test('new tab loads the shared catalog and local scripts with no embedded websites', () => {
+  const html = read('newtab.html');
+  assert.ok(html.indexOf('src="sites.js"') < html.indexOf('src="newtab.js"'));
+  assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)[^>]*>/i);
+  assert.doesNotMatch(html, /<iframe\b/i);
+  for (const resource of [...html.matchAll(/(?:src|href)="([^"]+)"/g)]) {
+    assert.ok(fs.existsSync(path.join(projectRoot, resource[1])), resource[1]);
+  }
+});
 
-  assert.match(customerCopy, /AI chatbots/);
-  assert.doesNotMatch(customerCopy, /\bAI assistants?\b/i);
-  assert.doesNotMatch(customerCopy, /\bassistants?\b/i);
+test('the launcher uses an English interface and shared theme resources', () => {
+  const html = read('newtab.html');
+  assert.match(html, /<html lang="en">/);
+  assert.match(html, /href="theme\.css"/);
+  assert.doesNotMatch(html, /<style>|[\u3400-\u9fff]/);
+  assert.doesNotMatch(read('newtab.js'), /[\u3400-\u9fff]/);
 });
 
 test('release documentation matches the manifest version', () => {
   const manifest = JSON.parse(read('manifest.json'));
-  assert.match(read('CHANGELOG.md'), new RegExp(`^## ${manifest.version} —`, 'm'));
+  const latest = read('CHANGELOG.md').match(/^## (\d+\.\d+\.\d+) —/m);
+  assert.equal(latest?.[1], manifest.version);
 });
 
 test('product branding stays consistent across customer-facing surfaces', () => {
@@ -145,11 +133,35 @@ test('product branding stays consistent across customer-facing surfaces', () => 
     read('README.md'),
     read('README.zh-CN.md'),
     read('PRIVACY.md'),
-    read('popup.html'),
-    read('icons/icon.svg'),
+    read('newtab.html'),
   ].join('\n');
 
   assert.doesNotMatch(customerCopy, /One Shortcut for AI Chat/);
-  assert.match(read('README.md'), /Make every AI chat work your way\./);
-  assert.match(read('README.zh-CN.md'), /让每个 AI 对话都按你的方式工作。/);
+  const tagline = 'Start with a thought.';
+  assert.ok(read('newtab.html').includes(tagline));
+  assert.ok(read('README.md').includes(tagline));
+  assert.match(read('README.zh-CN.md'), /从一个想法开始。/);
+});
+
+
+test('launcher catalog includes Google alongside the six chat services', () => {
+  const catalog=loadSiteCatalog();
+  assert.equal(catalog.sites.length,6);
+  assert.equal(catalog.getSite('google'),null);
+  assert.deepEqual(Array.from(catalog.launcherServices,site=>site.id),['google',...Array.from(catalog.sites,site=>site.id)]);
+  const query='  中文 & 日本語 + #  ';
+  assert.equal(new URL(catalog.getLaunchUrl('google',query)).searchParams.get('q'),query);
+  assert.equal(catalog.getLaunchUrl('google',' '),'https://www.google.com/');
+});
+
+test('every service packages a distinct local SVG without executable or remote content', () => {
+  const catalog = loadSiteCatalog();
+  const paths = Array.from(catalog.launcherServices, (service) => service.icon);
+  assert.equal(new Set(paths).size, 7);
+  for (const iconPath of paths) {
+    assert.match(iconPath, /^icons\/services\/[a-z]+\.svg$/);
+    const svg = read(iconPath);
+    assert.match(svg, /<svg\b/);
+    assert.doesNotMatch(svg, /<script\b|<foreignObject\b|\bonload\s*=|(?:href|src)=["'](?:https?:|javascript:)/i);
+  }
 });

@@ -31,3 +31,6 @@ coverage/
 
 # OS files
 Thumbs.db
+
+# Local browser validation artifacts
+output/playwright/

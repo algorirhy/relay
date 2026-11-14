@@ -1,24 +1,16 @@
-// Shared site catalog used by the popup, background worker, and content script.
+// Shared site catalog used by the launcher, worker, and website adapters.
 
 (() => {
   'use strict';
 
   const freezeList = (items) => Object.freeze([...items]);
 
-  const attachmentLimits = Object.freeze({
-    maxFiles: 5,
-    maxFileSizeBytes: 10 * 1024 * 1024,
-    maxTotalSizeBytes: 20 * 1024 * 1024,
-  });
-
   const sites = [
     {
       id: 'chatgpt',
+      icon: 'icons/services/chatgpt.svg',
       name: 'ChatGPT',
-      displayUrl: 'chatgpt.com',
-      color: '#10b981',
       hosts: ['chatgpt.com'],
-      tabPatterns: ['https://chatgpt.com/*'],
       newChatUrl: 'https://chatgpt.com/',
       newChatSelectors: [
         'a[data-testid="create-new-chat-button"]',
@@ -40,10 +32,6 @@
         'button[aria-label*="send" i]',
         'form button[type="submit"]',
       ],
-      fileInputSelectors: [
-        'input[type="file"][multiple]',
-        'input[type="file"]',
-      ],
       attachmentButtonSelectors: [
         'button[data-testid="composer-plus-btn"]',
         'button[aria-label*="attach" i]',
@@ -55,11 +43,9 @@
     },
     {
       id: 'claude',
+      icon: 'icons/services/claude.svg',
       name: 'Claude',
-      displayUrl: 'claude.ai',
-      color: '#f59e0b',
       hosts: ['claude.ai'],
-      tabPatterns: ['https://claude.ai/*'],
       newChatUrl: 'https://claude.ai/new',
       newChatSelectors: [
         'a[href="/new"]',
@@ -80,10 +66,6 @@
         'button[aria-label*="send" i]',
         'form button[type="submit"]',
       ],
-      fileInputSelectors: [
-        'input[type="file"][multiple]',
-        'input[type="file"]',
-      ],
       attachmentButtonSelectors: [
         'button[data-testid*="file" i]',
         'button[aria-label*="attach" i]',
@@ -95,11 +77,9 @@
     },
     {
       id: 'gemini',
+      icon: 'icons/services/gemini.svg',
       name: 'Gemini',
-      displayUrl: 'gemini.google.com',
-      color: '#8b5cf6',
       hosts: ['gemini.google.com'],
-      tabPatterns: ['https://gemini.google.com/*'],
       newChatUrl: 'https://gemini.google.com/app',
       preserveGoogleAccountPath: true,
       newChatSelectors: [
@@ -120,27 +100,12 @@
         'button[aria-label*="send" i]',
         'form button[type="submit"]',
       ],
-      fileInputSelectors: [
-        'input[type="file"][multiple]',
-        'input[type="file"]',
-      ],
-      attachmentButtonSelectors: [
-        'button[aria-label="Upload & tools"]',
-        'button[aria-label*="upload" i]',
-        'button[aria-label*="add file" i]',
-        'button[aria-label*="attach" i]',
-        'button[data-test-id="local-images-files-uploader-button"]',
-        'button[data-test-id*="upload" i]',
-      ],
-      attachmentButtonTexts: ['Upload files', 'Upload file', 'Files', '上传文件'],
     },
     {
       id: 'grok',
+      icon: 'icons/services/grok.svg',
       name: 'Grok',
-      displayUrl: 'grok.com',
-      color: '#f43f5e',
       hosts: ['grok.com'],
-      tabPatterns: ['https://grok.com/*'],
       newChatUrl: 'https://grok.com/',
       newChatSelectors: [
         'a[aria-label*="New chat" i]',
@@ -159,10 +124,6 @@
         'button[class*="send" i]',
         'form button[type="submit"]',
       ],
-      fileInputSelectors: [
-        'input[type="file"][multiple]',
-        'input[type="file"]',
-      ],
       attachmentButtonSelectors: [
         'button[aria-label*="attach" i]',
         'button[aria-label*="upload" i]',
@@ -173,13 +134,11 @@
     },
     {
       id: 'deepseek',
+      icon: 'icons/services/deepseek.svg',
       name: 'DeepSeek',
-      displayUrl: 'chat.deepseek.com',
-      color: '#06b6d4',
-      hosts: ['deepseek.com'],
-      tabPatterns: [
-        'https://chat.deepseek.com/*',
-        'https://www.deepseek.com/*',
+      hosts: [
+        'chat.deepseek.com',
+        'www.deepseek.com',
       ],
       newChatUrl: 'https://chat.deepseek.com/',
       newChatSelectors: [
@@ -203,10 +162,6 @@
         'div[role="button"][class*="send" i]',
         'form button[type="submit"]',
       ],
-      fileInputSelectors: [
-        'input[type="file"][multiple]',
-        'input[type="file"]',
-      ],
       attachmentButtonSelectors: [
         'button[aria-label*="upload" i]',
         'button[aria-label*="attach" i]',
@@ -217,13 +172,11 @@
     },
     {
       id: 'doubao',
+      icon: 'icons/services/doubao.svg',
       name: 'Doubao',
-      displayUrl: 'doubao.com',
-      color: '#3b82f6',
-      hosts: ['doubao.com'],
-      tabPatterns: [
-        'https://www.doubao.com/*',
-        'https://doubao.com/*',
+      hosts: [
+        'www.doubao.com',
+        'doubao.com',
       ],
       newChatUrl: 'https://www.doubao.com/chat/',
       newChatSelectors: [
@@ -233,6 +186,8 @@
       ],
       newChatTexts: ['新对话', '新建对话'],
       inputSelectors: [
+        '#input-engine-container [contenteditable="true"]',
+        '[data-testid="chat_input_input"] [contenteditable="true"]',
         'textarea[data-testid*="chat_input"]',
         'textarea[placeholder]',
         'div[contenteditable="true"]',
@@ -249,33 +204,46 @@
         'div[role="button"][class*="send" i]',
         'form button[type="submit"]',
       ],
-      fileInputSelectors: [
-        'input[type="file"][multiple]',
-        'input[type="file"]',
-      ],
-      attachmentButtonSelectors: [
-        'button[aria-label*="upload" i]',
-        'button[aria-label*="attach" i]',
-        'button[aria-label*="file" i]',
-        '[data-testid*="upload" i]',
-        '[data-testid*="file" i]',
-      ],
-      attachmentButtonTexts: ['Upload file', 'Upload files', '上传文件', '添加文件', '文件'],
     },
   ].map((site) => Object.freeze({
     ...site,
     hosts: freezeList(site.hosts),
-    tabPatterns: freezeList(site.tabPatterns),
+    tabPatterns: Object.freeze(site.hosts.map((host) => `https://${host}/*`)),
     newChatSelectors: freezeList(site.newChatSelectors),
     newChatTexts: freezeList(site.newChatTexts),
     inputSelectors: freezeList(site.inputSelectors),
     sendSelectors: freezeList(site.sendSelectors),
-    fileInputSelectors: freezeList(site.fileInputSelectors),
-    attachmentButtonSelectors: freezeList(site.attachmentButtonSelectors),
-    attachmentButtonTexts: freezeList(site.attachmentButtonTexts),
+    attachmentButtonSelectors: freezeList(site.attachmentButtonSelectors || []),
+    attachmentButtonTexts: freezeList(site.attachmentButtonTexts || []),
   }));
 
   const frozenSites = Object.freeze(sites);
+  const google = Object.freeze({
+    id: 'google',
+    name: 'Google',
+    icon: 'icons/services/google.svg',
+    newChatUrl: 'https://www.google.com/',
+    aiModeUrl: 'https://www.google.com/ai',
+    // Public entry point redirects to the AI Mode version of the Google homepage.
+    inputSelectors: freezeList([
+      'textarea[aria-label*="Ask" i]', 'textarea[placeholder*="Ask" i]',
+      'textarea[aria-label*="質問"]', 'textarea[placeholder*="質問"]',
+      '[contenteditable="true"][role="textbox"]', 'textarea[name="q"]',
+    ]),
+    sendSelectors: freezeList([
+      'button[aria-label*="Send" i]', 'button[aria-label*="Submit" i]',
+      'button[aria-label*="送信"]', 'button[aria-label*="发送"]',
+    ]),
+  });
+  const launcherServices = Object.freeze([google, ...frozenSites]);
+
+  function getLaunchUrl(serviceId, prompt = '') {
+    if (serviceId !== 'google') return getNewChatUrl(serviceId);
+    if (!prompt.trim()) return google.newChatUrl;
+    const url = new URL('search', google.newChatUrl);
+    url.searchParams.set('q', prompt);
+    return url.href;
+  }
 
   function getSite(siteId) {
     return frozenSites.find((site) => site.id === siteId) || null;
@@ -283,12 +251,23 @@
 
   function findSiteByUrl(url) {
     try {
-      const hostname = new URL(url).hostname.toLowerCase();
-      return frozenSites.find((site) => site.hosts.some(
-        (host) => hostname === host || hostname.endsWith(`.${host}`),
-      )) || null;
+      const { protocol, hostname } = new URL(url);
+      if (protocol !== 'https:') return null;
+      return frozenSites.find((site) => site.hosts.includes(hostname)) || null;
     } catch (_error) {
       return null;
+    }
+  }
+
+  function isGoogleAiPage(value) {
+    try {
+      const { protocol, hostname, pathname, searchParams } = new URL(value);
+      return protocol === 'https:' && ['www.google.com', 'google.com'].includes(hostname) &&
+        (/^\/(?:ai|aimode)\/?$/.test(pathname) ||
+          (pathname === '/webhp' && searchParams.get('aep') === '11') ||
+          (pathname === '/search' && searchParams.get('udm') === '50'));
+    } catch {
+      return false;
     }
   }
 
@@ -299,7 +278,7 @@
     if (site.preserveGoogleAccountPath) {
       try {
         const current = new URL(currentUrl);
-        const accountPath = current.pathname.match(/^\/u\/\d+/)?.[0];
+        const accountPath = current.pathname.match(/^\/u\/\d+(?=\/|$)/)?.[0];
         if (accountPath) {
           return `https://gemini.google.com${accountPath}/app`;
         }
@@ -311,11 +290,14 @@
     return site.newChatUrl;
   }
 
-  globalThis.OneAIShortcut = Object.freeze({
+  globalThis.RelaySites = Object.freeze({
     sites: frozenSites,
+    launcherServices,
+    google,
+    getLaunchUrl,
     getSite,
     findSiteByUrl,
+    isGoogleAiPage,
     getNewChatUrl,
-    attachmentLimits,
   });
 })();

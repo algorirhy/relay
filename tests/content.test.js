@@ -8,11 +8,13 @@ const contentSource = fs.readFileSync(
   path.resolve(__dirname, '..', 'content.js'),
   'utf8',
 );
+const attachmentSource = fs.readFileSync(path.resolve(__dirname, '..', 'attachments.js'), 'utf8');
 
-function createHarness({ confirmOnClick = 2 } = {}) {
+function createHarness({ confirmOnClick = 2, acceptedFileTypes = [] } = {}) {
   let clock = 0;
   let clickCount = 0;
   let runtimeMessageListener;
+  const uploads = [];
 
   class FakeElement {
     constructor() {
@@ -41,9 +43,23 @@ function createHarness({ confirmOnClick = 2 } = {}) {
     select() {}
   }
 
-  class FakeInput extends FakeElement {}
+  class FakeInput extends FakeElement {
+    constructor(accept) {
+      super();
+      this.accept = accept;
+      this.multiple = true;
+    }
+
+    dispatchEvent(event) {
+      if (event.type === 'change') {
+        uploads.push([this.accept, Array.from(this.files, (file) => file.name)]);
+      }
+      return true;
+    }
+  }
 
   const editor = new FakeTextArea();
+  const fileInputs = acceptedFileTypes.map((type) => new FakeInput(type));
   const sendButton = new FakeElement();
   sendButton.click = () => {
     clickCount += 1;
@@ -55,12 +71,15 @@ function createHarness({ confirmOnClick = 2 } = {}) {
     name: 'ChatGPT',
     inputSelectors: ['#editor'],
     sendSelectors: ['#send'],
+    attachmentButtonSelectors: [],
+    attachmentButtonTexts: [],
   };
 
   const document = {
     querySelectorAll(selector) {
       if (selector === '#editor') return [editor];
       if (selector === '#send') return [sendButton];
+      if (selector === 'input[type="file"]') return fileInputs;
       return [];
     },
     addEventListener() {},
@@ -101,7 +120,7 @@ function createHarness({ confirmOnClick = 2 } = {}) {
   };
 
   const context = vm.createContext({
-    OneAIShortcut: { findSiteByUrl: () => site },
+    RelaySites: { findSiteByUrl: () => site, isGoogleAiPage: () => false },
     chrome,
     console: { error() {}, log() {}, warn() {} },
     document,
@@ -109,8 +128,14 @@ function createHarness({ confirmOnClick = 2 } = {}) {
     navigator: { platform: 'MacIntel' },
     HTMLTextAreaElement: FakeTextArea,
     HTMLInputElement: FakeInput,
+    File,
+    atob,
+    DataTransfer: class {
+      files = [];
+      items = { add: (file) => this.files.push(file) };
+    },
     InputEvent: class {},
-    Event: class {},
+    Event: class { constructor(type) { this.type = type; } },
     KeyboardEvent: class {},
     Date: { now: () => clock },
     setTimeout(callback, milliseconds) {
@@ -122,12 +147,13 @@ function createHarness({ confirmOnClick = 2 } = {}) {
     queueMicrotask,
   });
 
+  vm.runInContext(attachmentSource, context, { filename: 'attachments.js' });
   vm.runInContext(contentSource, context, { filename: 'content.js' });
 
-  async function submit(prompt) {
+  async function submit(prompt, attachments = []) {
     return new Promise((resolve) => {
       const keepChannelOpen = runtimeMessageListener(
-        { action: 'submit-prompt', prompt, attachments: [] },
+        { action: 'submit-prompt', prompt, attachments },
         {},
         resolve,
       );
@@ -138,6 +164,7 @@ function createHarness({ confirmOnClick = 2 } = {}) {
   return {
     submit,
     clickCount: () => clickCount,
+    uploads,
   };
 }
 
@@ -157,4 +184,23 @@ test('content delivery reports failure after two clicks without submission evide
   assert.equal(response.ok, false);
   assert.match(response.error, /did not confirm/);
   assert.equal(harness.clickCount(), 2);
+});
+
+test('mixed formats use their matching upload controls or stop before Send', async () => {
+  const attachments = ['image/png', 'application/pdf'].map((type, index) => ({
+    name: ['example.png', 'example.pdf'][index],
+    type,
+    lastModified: 0,
+    dataUrl: `data:${type};base64,YQ==`,
+  }));
+
+  const supported = createHarness({ confirmOnClick: 1, acceptedFileTypes: ['image/*', '.pdf'] });
+  assert.equal((await supported.submit('Here are two files', attachments)).ok, true);
+  assert.deepEqual(supported.uploads, [['image/*', ['example.png']], ['.pdf', ['example.pdf']]]);
+
+  const unsupported = createHarness({ acceptedFileTypes: ['image/*'] });
+  const response = await unsupported.submit('Here are two files', attachments);
+  assert.equal(response.ok, false);
+  assert.match(response.error, /example\.pdf/);
+  assert.equal(unsupported.clickCount(), 0);
 });

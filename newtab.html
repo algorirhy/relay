@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>Relay</title>
+    <link rel="icon" href="icons/relay-32.png">
+    <link rel="stylesheet" href="theme.css">
+    <link rel="stylesheet" href="styles.css">
+    <script src="sites.js" defer></script>
+    <script src="attachments.js" defer></script>
+    <script src="newtab.js" defer></script>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <div class="app-header">
+          <img class="app-logo" src="icons/relay-256.png" alt="" width="36" height="36">
+          <h1>Relay</h1>
+        </div>
+        <h2>Start with a thought.</h2>
+        <p class="hero-description">Search. Ask. Explore.</p>
+      </header>
+
+      <div class="mode-bar">
+        <label class="mode-switch"><input id="multiple-mode" type="checkbox" role="switch"><span>Multiple services</span></label>
+      </div>
+      <div class="service-grid" role="group" aria-label="Choose a service"></div>
+
+      <form id="launcher-form" autocomplete="off">
+        <label class="sr-only" for="prompt">Search or ask</label>
+        <div class="input-panel" id="composer">
+          <textarea id="prompt" name="prompt" rows="4" spellcheck="true" autofocus aria-describedby="service-hint status" placeholder="Search Google…"></textarea>
+          <ul id="attachment-list" class="attachment-list" aria-label="Attachments" hidden></ul>
+          <input id="attachment-input" type="file" multiple hidden>
+          <div class="composer-actions">
+            <button id="attachment-button" class="attach-action" type="button" aria-describedby="attachment-limit">
+              <img src="icons/ui/paperclip.svg" width="16" height="16" alt=""> Attach
+            </button>
+            <p id="service-hint" class="service-hint"></p>
+            <button id="submit-button" class="primary-action" type="submit" title="Enter to continue. Shift+Enter for a new line."><span id="submit-label">Open</span></button>
+          </div>
+        </div>
+        <p id="attachment-limit" class="attachment-limit"></p>
+        <p id="status" class="status" role="status" aria-live="polite"></p>
+        <button id="copy-prompt" class="copy-prompt" type="button" hidden>Copy prompt</button>
+      </form>
+
+      <div class="launcher-help" aria-label="Keyboard shortcuts">
+        <span><kbd>Enter</kbd> to continue · <kbd>Shift+Enter</kbd> for a new line</span>
+        <span><kbd>Alt / Option + 1–7</kbd> to choose services</span>
+      </div>
+    </main>
+  </body>
+</html>
