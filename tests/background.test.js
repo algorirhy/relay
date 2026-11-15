@@ -452,3 +452,20 @@ test('a running job keeps its recovery data after the retention period', async (
   }
   await h.waitForLauncher();
 });
+
+test('multiple delivery leaves a matching tab alone when it is navigating elsewhere', async () => {
+  const pending = {
+    id: 7, windowId: 1, index: 1, url: 'https://chatgpt.com/c/current',
+    pendingUrl: 'https://chatgpt.com/c/user-navigation', status: 'loading',
+  };
+  const h = createHarness([launcherTab, pending]);
+  const response = await h.request({
+    action: 'launch-prompt', siteIds: ['chatgpt'], prompt: 'Start fresh', multiple: true,
+  });
+
+  assert.equal(response.accepted, true);
+  assert.equal((await h.waitForLauncher()).result.ok, true);
+  assert.deepEqual(h.records.updated, []);
+  assert.equal(h.records.created.length, 1);
+  assert.equal(h.records.submitted[0].tabId, h.records.created[0].id);
+});

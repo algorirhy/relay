@@ -6,7 +6,6 @@
   const INSTALL_FLAG = '__relayPageMainInstalled';
   const REQUEST_SOURCE = 'relay-extension';
   const RESPONSE_SOURCE = 'relay-page';
-  let pendingDoubaoUpload = null;
 
   if (window[INSTALL_FLAG]) return;
   Object.defineProperty(window, INSTALL_FLAG, { value: true });
@@ -17,6 +16,10 @@
 
   function currentSiteId() {
     return RelaySites.findSiteByUrl(location.href)?.id;
+  }
+
+  function requireDestination(url) {
+    if (window.location.href !== url) throw new Error('The destination page changed before sending.');
   }
 
   function isVisible(element) {
@@ -106,7 +109,8 @@
   function findFileInput(siteId, files) {
     const inputs = [...document.querySelectorAll('input[type="file"]')]
       .filter((input) => (
-        !input.disabled && files.every((file) => RelayAttachments.inputAcceptsFile(input, file))
+        !input.disabled && (input.multiple || files.length === 1) &&
+        files.every((file) => RelayAttachments.inputAcceptsFile(input, file))
       ));
 
     return inputs.sort((left, right) => (
@@ -119,13 +123,14 @@
     ))[0] || null;
   }
 
-  async function prepareGeminiInput(files) {
+  async function prepareGeminiInput(files, url) {
     const startedAt = Date.now();
     const deadline = startedAt + 20000;
     const imagesOnly = files.every((file) => file.type.startsWith('image/'));
     let lastTriggerClick = 0;
 
     while (Date.now() < deadline) {
+      requireDestination(url);
       const compatibleInput = findFileInput('gemini', files);
       if (compatibleInput) return compatibleInput;
 
@@ -157,9 +162,10 @@
     return null;
   }
 
-  async function waitForDoubaoInput(files, timeoutMs = 20000) {
+  async function waitForDoubaoInput(files, url, timeoutMs = 20000) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
+      requireDestination(url);
       const input = findFileInput('doubao', files);
       if (input) return input;
       await delay(150);
@@ -167,11 +173,12 @@
     return null;
   }
 
-  async function setFiles(siteId, attachments) {
+  async function setFiles(siteId, attachments, url) {
     const files = attachments.map(RelayAttachments.decode);
     const input = siteId === 'gemini'
-      ? await prepareGeminiInput(files)
-      : await waitForDoubaoInput(files);
+      ? await prepareGeminiInput(files, url)
+      : await waitForDoubaoInput(files, url);
+    requireDestination(url);
     if (!input) throw new Error(`${siteId} file input is not available.`);
 
     const transfer = new DataTransfer();
@@ -199,13 +206,7 @@
       throw new Error(`${siteId} did not retain the selected files.`);
     }
 
-    if (siteId === 'doubao') {
-      pendingDoubaoUpload = {
-        names: files.map((file) => file.name),
-        startedAt: Date.now(),
-        input,
-      };
-    }
+    return files.map((file) => file.name);
   }
 
   function findDoubaoComposer() {
@@ -266,23 +267,19 @@
     ));
   }
 
-  function doubaoUploadEvidence(root, upload) {
-    if (!upload?.names?.length) return true;
+  function doubaoUploadEvidence(root, names) {
+    if (!names.length) return true;
     if (!root) return false;
 
-    // Retaining File objects only proves that the input accepted them. Doubao can
-    // still be rendering or uploading the preview, during which a send click is
-    // frequently ignored. Prefer visible, fully decoded previews or file names.
-    if (upload.input?.files?.length < upload.names.length) return false;
-
     const blobImages = [...root.querySelectorAll('img[src^="blob:"]')];
-    if (blobImages.length >= upload.names.length && blobImages.every((image) => (
+    if (blobImages.length >= names.length && blobImages.every((image) => (
       image.complete && image.naturalWidth > 0
     ))) {
       return true;
     }
 
-    const searchable = [root.textContent || ''];
+    const previews = root.querySelectorAll('[data-file-name], [data-filename], [class*="image-container" i]');
+    const searchable = [];
     for (const element of root.querySelectorAll(
       '[title], [aria-label], [data-file-name], [data-filename], img[alt]',
     )) {
@@ -294,110 +291,58 @@
         element.getAttribute('alt') || '',
       );
     }
+    for (const preview of previews) searchable.push(preview.textContent || '');
     const haystack = searchable.join('\n').toLocaleLowerCase();
-    if (upload.names.every((name) => haystack.includes(name.toLocaleLowerCase()))) return true;
+    if (names.every((name) => haystack.includes(name.toLocaleLowerCase()))) return true;
 
-    const previewCount = root.querySelectorAll(
-      '[class*="image-container" i], [data-file-name], [data-filename]',
-    ).length;
-    return previewCount >= upload.names.length;
+    return previews.length >= names.length;
   }
 
-  function doubaoReadyFingerprint(composer, root, busy, hasEvidence) {
-    return JSON.stringify({
-      busy,
-      hasEvidence,
-      fileNodes: root?.querySelectorAll(
-        'img, [data-file-name], [data-filename], [class*="attachment" i], [class*="upload" i]',
-      ).length || 0,
-      prompt: readDoubaoPrompt(composer.editor),
-      sendButton: composer.sendButton?.id || composer.sendButton?.className || '',
-    });
-  }
-
-  async function waitForDoubaoReady(timeoutMs = 30000) {
-    const upload = pendingDoubaoUpload;
-    const deadline = Date.now() + timeoutMs;
-    const minimumReadyAt = upload ? upload.startedAt + 2500 : Date.now();
-    const stableDuration = upload ? 1500 : 350;
-    let lastFingerprint = '';
-    let stableSince = 0;
+  async function prepareDoubaoComposer(url, prompt, names) {
+    const hasFiles = names.length > 0;
+    const startedAt = Date.now();
+    const deadline = startedAt + (hasFiles ? 30000 : 20000);
+    const stableDuration = hasFiles ? 1500 : 600;
+    const text = prompt.trim();
+    let filledEditor = null;
+    let stable = null;
 
     while (Date.now() < deadline) {
+      requireDestination(url);
       const composer = findDoubaoComposer();
-      if (composer?.editor && composer.sendButton) {
-        const root = doubaoComposerRoot(composer.editor);
-        const busy = doubaoUploadIsBusy(root);
-        const hasEvidence = doubaoUploadEvidence(root, upload);
-        const enoughTimePassed = Date.now() >= minimumReadyAt;
-        const canUseTimeFallback = upload && Date.now() >= upload.startedAt + 8000;
-        const fingerprint = doubaoReadyFingerprint(composer, root, busy, hasEvidence);
-
-        if (fingerprint !== lastFingerprint) {
-          lastFingerprint = fingerprint;
-          stableSince = Date.now();
+      if (composer?.editor) {
+        const { editor, sendButton } = composer;
+        const value = readDoubaoPrompt(editor).trim();
+        if (value !== text) {
+          if (value || editor === filledEditor) throw new Error('The Doubao draft changed before sending.');
+          setDoubaoPrompt(editor, prompt);
+          filledEditor = editor;
+          stable = null;
+          await delay(100);
+          continue;
         }
 
-        if (
-          !busy &&
-          enoughTimePassed &&
-          (hasEvidence || canUseTimeFallback) &&
-          Date.now() - stableSince >= stableDuration
-        ) {
-          return composer;
+        const root = doubaoComposerRoot(editor);
+        const ready = isEnabled(sendButton) && !doubaoUploadIsBusy(root) &&
+          (!hasFiles || (Date.now() - startedAt >= 2500 && doubaoUploadEvidence(root, names)));
+        if (ready) {
+          if (stable?.editor !== editor || stable.button !== sendButton) {
+            stable = { editor, button: sendButton, since: Date.now() };
+          } else if (Date.now() - stable.since >= stableDuration) {
+            return composer;
+          }
+        } else {
+          stable = null;
         }
-      }
-      await delay(150);
-    }
-
-    throw new Error('Doubao attachments did not become ready in time.');
-  }
-
-  async function waitForStableDoubaoComposer(timeoutMs = 5000, stableDuration = 600) {
-    const deadline = Date.now() + timeoutMs;
-    let stableEditor = null;
-    let stableButton = null;
-    let stableValue = '';
-    let stableSince = 0;
-
-    while (Date.now() < deadline) {
-      const composer = findDoubaoComposer();
-      const root = composer?.editor ? doubaoComposerRoot(composer.editor) : null;
-      const usable = Boolean(
-        composer?.editor &&
-        isEnabled(composer.sendButton) &&
-        !doubaoUploadIsBusy(root)
-      );
-      const value = composer?.editor ? readDoubaoPrompt(composer.editor) : '';
-
-      if (
-        usable &&
-        composer.editor === stableEditor &&
-        composer.sendButton === stableButton &&
-        value === stableValue
-      ) {
-        if (Date.now() - stableSince >= stableDuration) return composer;
       } else {
-        stableEditor = usable ? composer.editor : null;
-        stableButton = usable ? composer.sendButton : null;
-        stableValue = usable ? value : '';
-        stableSince = Date.now();
+        stable = null;
       }
       await delay(100);
     }
 
-    return null;
-  }
-
-  async function prepareStableDoubaoComposer(prompt, timeoutMs = 5000, stableDuration = 600) {
-    let composer = await waitForStableDoubaoComposer(timeoutMs, stableDuration);
-    if (!composer) return null;
-
-    if (prompt.trim() && readDoubaoPrompt(composer.editor).trim() !== prompt.trim()) {
-      setDoubaoPrompt(composer.editor, prompt);
-      composer = await waitForStableDoubaoComposer(timeoutMs, stableDuration);
-    }
-    return composer;
+    throw new Error(hasFiles
+      ? 'Doubao did not show all attachments in a ready composer.'
+      : 'Doubao message input or Send button did not become ready.');
   }
 
   function doubaoAttachmentCount(editor) {
@@ -408,11 +353,11 @@
     ).length;
   }
 
-  function createDoubaoSubmissionSnapshot(composer) {
+  function createDoubaoSubmissionSnapshot(composer, names) {
     return {
       initialUrl: location.href,
       initialValue: readDoubaoPrompt(composer.editor).trim(),
-      attachmentCount: doubaoAttachmentCount(composer.editor),
+      names,
     };
   }
 
@@ -426,8 +371,8 @@
       const liveValue = liveEditor ? readDoubaoPrompt(liveEditor).trim() : '';
       const liveAttachmentCount = liveEditor ? doubaoAttachmentCount(liveEditor) : 0;
 
-      if (liveEditor && (snapshot.initialValue || snapshot.attachmentCount) &&
-          !liveValue && !liveAttachmentCount) return true;
+      if (liveEditor && (snapshot.initialValue || snapshot.names.length) && !liveValue && !liveAttachmentCount &&
+          (!snapshot.names.length || !doubaoUploadEvidence(doubaoComposerRoot(liveEditor), snapshot.names))) return true;
 
       // A missing composer can be a rerender. Wait for a live, cleared draft.
       await delay(100);
@@ -494,27 +439,21 @@
     editor.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
   }
 
-  async function submitDoubao(prompt = '') {
-    const initialComposer = findDoubaoComposer();
-    if (!initialComposer?.editor) throw new Error('Doubao message input is not available.');
-
-    setDoubaoPrompt(initialComposer.editor, prompt);
-    await waitForDoubaoReady();
-    const composer = await prepareStableDoubaoComposer(prompt);
-    if (!composer?.editor?.isConnected || !isEnabled(composer.sendButton)) {
-      throw new Error('Doubao message input disappeared before submission.');
+  async function submitDoubao(url, prompt, attachments) {
+    const names = attachments.length ? await setFiles('doubao', attachments, url) : [];
+    const composer = await prepareDoubaoComposer(url, prompt, names);
+    requireDestination(url);
+    if (!composer.editor.isConnected || !isEnabled(composer.sendButton) ||
+        readDoubaoPrompt(composer.editor).trim() !== prompt.trim() ||
+        !doubaoUploadEvidence(doubaoComposerRoot(composer.editor), names)) {
+      throw new Error('The Doubao draft changed before sending.');
     }
-    if (readDoubaoPrompt(composer.editor).trim() !== prompt.trim()) {
-      throw new Error('Doubao did not retain the requested prompt.');
-    }
-    const snapshot = createDoubaoSubmissionSnapshot(composer);
+    const snapshot = createDoubaoSubmissionSnapshot(composer, names);
     composer.sendButton.click();
     if (!await waitForDoubaoSubmission(snapshot, 6000)) {
       throw new Error('Doubao did not confirm that the message was submitted.');
     }
-
-    pendingDoubaoUpload = null;
-    return { submitted: true, method: 'button' };
+    return { method: 'button' };
   }
 
   function postResult(action, requestId, ok, error = '', details = {}) {
@@ -529,49 +468,27 @@
   }
 
   window.addEventListener('message', async (event) => {
-    if (
-      event.source !== window ||
-      event.origin !== window.location.origin ||
-      event.data?.source !== REQUEST_SOURCE ||
-      !['page-submit', 'page-attach'].includes(event.data?.action)
-    ) {
-      return;
-    }
+    if (event.source !== window || event.origin !== window.location.origin ||
+        event.data?.source !== REQUEST_SOURCE) return;
 
-    const siteId = currentSiteId();
-    if (!siteId || event.data.siteId !== siteId) return;
+    const { action, siteId, requestId, url, prompt, attachments = [] } = event.data;
+    if (!(siteId === 'gemini' && action === 'page-attach') &&
+        !(siteId === 'doubao' && action === 'page-submit')) return;
+    if (siteId !== currentSiteId()) return;
 
-    if (event.data.action === 'page-attach') {
-      try {
-        const attachments = Array.isArray(event.data.attachments) ? event.data.attachments : [];
-        if (!attachments.length) throw new Error('No attachments were provided.');
-        await setFiles(siteId, attachments);
-        window.setTimeout(() => postResult('page-attach-result', event.data.requestId, true), 50);
-      } catch (error) {
-        postResult(
-          'page-attach-result',
-          event.data.requestId,
-          false,
-          error instanceof Error ? error.message : String(error),
-        );
-      }
-      return;
-    }
-
-    if (siteId !== 'doubao') return;
+    const resultAction = `${action}-result`;
     try {
-      const result = await submitDoubao(
-        typeof event.data.prompt === 'string' ? event.data.prompt : '',
-      );
-      postResult('page-submit-result', event.data.requestId, true, '', result);
+      requireDestination(url);
+      let result;
+      if (action === 'page-attach') {
+        if (!attachments.length) throw new Error('No attachments were provided.');
+        await setFiles(siteId, attachments, url);
+      } else {
+        result = await submitDoubao(url, typeof prompt === 'string' ? prompt : '', attachments);
+      }
+      postResult(resultAction, requestId, true, '', result);
     } catch (error) {
-      pendingDoubaoUpload = null;
-      postResult(
-        'page-submit-result',
-        event.data.requestId,
-        false,
-        error instanceof Error ? error.message : String(error),
-      );
+      postResult(resultAction, requestId, false, error instanceof Error ? error.message : String(error));
     }
   });
 })();

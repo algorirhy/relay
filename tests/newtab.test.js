@@ -6,7 +6,7 @@ const vm = require('node:vm');
 
 const root = path.resolve(__dirname, '..');
 
-async function createHarness({ saved = null, storageFails = false, clipboardFails = false, clipboardMissing = false, submitGate = null, rejectLaunch = false, initialJob = null, navigationFails = false, pollFailures = 0 } = {}) {
+async function createHarness({ saved = null, storageFails = false, clipboardFails = false, clipboardMissing = false, submitGate = null, rejectLaunch = false, loseAcknowledgement = false, initialJob = null, navigationFails = false, pollFailures = 0 } = {}) {
   class Element {
     constructor(tagName = 'div') {
       this.tagName = tagName;
@@ -72,6 +72,7 @@ async function createHarness({ saved = null, storageFails = false, clipboardFail
         if (submitGate) await submitGate;
         if (rejectLaunch) return {accepted:false,error:'Delivery was not accepted. Nothing was sent.'};
         job={id:'test-job',state:'pending',prompt:message.prompt,siteIds:message.siteIds,multiple:message.multiple};
+        if (loseAcknowledgement) throw new Error('The message port closed');
         return {accepted:true,jobId:job.id};
       }
     } } },
@@ -293,6 +294,8 @@ test('successful multi delivery shows confirmed results and clears the recovery 
   await h.finish({ok:true,results:[{name:'ChatGPT',ok:true},{name:'Claude',ok:true}]});
   assert.match(h.elements.status.textContent,/Sent to ChatGPT, Claude/);
   assert.equal(h.elements.prompt.disabled,false);
+  assert.equal(h.elements.prompt.value, '');
+  assert.equal(h.elements['submit-button'].disabled, true);
   assert.equal(h.elements['copy-prompt'].hidden,true);
   assert.ok(h.records.messages.some(message=>message.action==='clear-launcher-job'));
 });
@@ -386,4 +389,16 @@ test('a failed status read keeps an accepted submission locked until the next po
   await h.finish({ ok: true, results: [{ ok: true, name: 'ChatGPT' }] });
   assert.match(h.elements.status.textContent, /Sent to ChatGPT/);
   assert.equal(h.elements.prompt.disabled, false);
+});
+
+test('a missing acknowledgement leaves delivery uncertain and keeps the prompt available', async () => {
+  const h = await createHarness({ loseAcknowledgement: true });
+  h.choose('claude');
+  h.type('Keep this prompt');
+  h.elements['launcher-form'].emit('submit');
+  await h.settle();
+  assert.match(h.elements.status.textContent, /Could not confirm whether delivery started/);
+  assert.equal(h.elements.prompt.value, 'Keep this prompt');
+  assert.equal(h.elements['copy-prompt'].hidden, false);
+  assert.equal(h.records.messages.filter((message) => message.action === 'launch-prompt').length, 1);
 });

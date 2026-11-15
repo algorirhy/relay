@@ -13,43 +13,35 @@ Relay is a Chrome Manifest V3 extension written in plain JavaScript, HTML, and C
 | `page-main.js` | Page-context bridge for Gemini and Doubao uploads and Doubao submission. |
 | `tests/` | Node regressions for manifest/catalog, composer, worker, and page adapters. |
 
-## Delivery
-
-An empty single-service draft opens the service directly. A text-only Google search in single mode also navigates directly. Delivery tasks go through the worker, which validates the requester and files, records the draft, then acknowledges. Attachments travel through Chrome's JSON messaging and stay in memory. Draft recovery stores the text and file metadata. See [Privacy](../PRIVACY.md).
-
-Single mode uses the source tab. Multiple mode runs destinations independently under per-service locks and opens Google in a new background tab. The worker waits for the destination to load, checks that it stayed on the expected page, and then asks its content script to send. A restarted worker marks pending jobs as interrupted. After a single-mode failure, the worker restores the launcher while the tab still shows the page Relay opened and has no pending navigation.
-
-Chrome can report `chrome://newtab/` in `tabs.get` even though the sender is the extension document. Accept that alias only for source-tab state; keep sender validation strict.
-
 ## State inventory
 
-The launcher restores a session record, then enters editing or waits for that job. Submitting locks the draft while preparing files and waiting for an acknowledgement. An accepted job stays locked while Relay reads its status. The launcher retries two failed reads for the same job ID. If it still cannot read the status, it restores editing and asks the user to check the destination. Direct navigation leaves the launcher.
+The launcher, worker, and provider adapters own their respective transitions. Draft mode, file availability and composition are independent of the launcher phase. Keep state local to the code that can validate its next transition.
 
-| Flow | States and owner | Invariant or follow-up |
+| Flow | Owner and transitions | Guard or remaining dependency |
 | --- | --- | --- |
-| Launcher lifecycle | `newtab.js`: restoring → editing → submitting → waiting → editing. Direct opens go from editing to navigating. | One phase controls input. Poll results must match the current job ID. |
-| Destination selection | `newtab.js`: single selection or a set of multiple selections. The last single selection is stored separately. | Switching mode preserves both selections and derives whether Google needs a question. |
-| Input events | `newtab.js`: normal input or IME composition. Drag hover and copy feedback are local UI states. | Composition suppresses shortcuts. Hover and copy feedback belong to the current page. |
-| Attachments | `newtab.js`: selected file → reading → encoded payload. Recovery creates metadata-only entries until the user reselects or removes them. | Pending file reads lock edits. Missing files block submission. |
-| Draft recovery | `background.js`: no record → pending → complete, or interrupted on read if the worker no longer owns the pending ID. Closing the source tab or expiry removes the record. | Register, read, finalize, and delete records serially per launcher tab. A live job does not expire. An interrupted record is never replayed. |
-| Destination arbitration | `background.js`: waiting for the site lock → opening or reusing a tab → page load → adapter ready → sent or failed. Google web search only opens a tab. | Serial per service and concurrent across services. The readiness check binds delivery to the loaded URL. |
-| Generic chat submit | `content.js`: locate editor → attach if needed → fill → wait for Send → observe confirmation. | An unchanged text-only draft can retry once. A file send cannot retry automatically. |
-| Google AI Mode | `content.js`: locate editor → insert files → wait for previews → fill → submit once → confirm or fail. | Check the original URL before uploading and submitting. Attachment and confirmation signals still depend on the site UI. |
-| Page bridge requests | `content.js` and `page-main.js`: install the page listener once, then wait for each request ID to resolve, reject, or time out. | Success and timeout both remove the isolated-world listener. |
-| Gemini upload | `page-main.js`: find input → open upload menu if needed → use compatible or shared input → hand off to generic submit. | The DOM determines readiness. Keep this bounded wait local to Gemini. |
-| Doubao upload and submit | `page-main.js`: track one pending upload → wait for ready, stable controls → send once → confirm or fail. | Upload readiness uses site signals and a timed fallback. A missing composer alone cannot confirm submission. Check real provider behavior before changing upload heuristics. |
-| Provider shortcuts | `content.js` and `background.js`: dispatch the shortcut, then use a site control, keyboard event, or new-chat navigation. | These are bounded fallbacks. They do not retain separate task state. |
+| Launcher | `newtab.js`: restoring → editing → submitting → waiting → editing. Empty single drafts and single Google searches go directly from editing to navigating. | One phase locks the composer. Each poll checks the current job ID. Two retries cover failed status reads. A lost acknowledgement leaves delivery uncertain. |
+| Destinations | `newtab.js`: single selection ↔ multiple selection. Both selections survive mode changes. | Store only the last single preference. In multiple mode, a nonempty selection and draft are required. |
+| Keyboard and dragging | `newtab.js`: IME composition starts and ends independently. File drag feedback is active until leaving the composer or dropping files. | Suppress submit and service shortcuts during composition. Accept file changes while editing. |
+| Files | `newtab.js`: selected → validated → reading → encoded payload. A restored file has metadata until reselected or removed. | Missing files block submission. The composer stays locked during file reads. |
+| Results and copy | `newtab.js`: pending, confirmed, failed or interrupted; an explicit copy can succeed or fail. | All-success consumes the draft. Partial results keep it for review. Clipboard feedback applies to the draft that initiated the copy. |
+| Recovery record | `background.js`: absent → pending → complete. A pending record with no owning worker job reads as interrupted. | Serialize registration, reads, completion and removal per tab. Save text and file metadata before acknowledging. Clear records on tab close and expire inactive records on access. Recovery never replays a job. See [Privacy](../PRIVACY.md). |
+| Destination routing | `background.js`: wait for service lock → open or reuse a tab → wait for load and adapter → dispatch → record result. | One delivery at a time per service. Reuse a settled tab. Bind dispatch to the loaded URL and adapter. A failed single delivery restores the launcher only while its tab still shows the page Relay opened and has no pending navigation. |
+| Google web search | `newtab.js` navigates the current tab in single mode. `background.js` opens a background tab in multiple mode. | Success measures tab creation, so the result is reported as opened search. |
+| Generic chat | `content.js`: wait for live editor → upload if needed → fill → wait for Send → look for confirmation. | Recheck the URL across asynchronous uploads and before filling or sending. An unchanged text-only draft can retry once. File sends can click once and depend on the site's upload controls. |
+| Google AI Mode | `content.js`: locate editor → upload or paste files → observe all previews → fill → click Send → confirm or fail. | One submission. A route outside AI Mode ends confirmation. Availability and preview detection depend on account access and Google's UI. |
+| Page bridge | `content.js` and `page-main.js`: install one page listener, send a request, resolve, reject or time out. | Pair responses by origin, action and request ID. Remove the isolated-world listener after closing the request. The bridge checks the URL before page mutations. |
+| Gemini upload | `page-main.js`: find input → open upload menu if needed → use a compatible input or the shared multi-file input. | Gemini validates the files in its own uploader. The generic adapter handles submission. |
+| Doubao delivery | `page-main.js`: upload if needed → fill the live composer → wait for stable controls and attachment evidence → click once → confirm or fail. | One request owns files and draft. Time alone cannot establish upload readiness. A missing composer cannot confirm submission. |
+| Provider shortcuts | `content.js` and `background.js`: dispatch a command, then try a site control, keyboard event or navigation. | Each invocation ends at its first matching action. The browser and provider own subsequent navigation. |
 
-The catalog in `sites.js` and payload validation in `attachments.js` are stateless. A shared state-machine library would add coordination between unrelated flows. Model a separate transition explicitly when it owns persistent data or needs to reject a stale event.
+Chrome can expose a genuine overridden new tab as `chrome://newtab/` in `tabs.get`. The worker accepts that alias for the source tab and authenticates the sender against the extension document URL. The service catalog and attachment validators are stateless.
 
 ## Adapter maintenance
 
-The attachment limit uses 1,048,576 bytes per displayed MB for compatibility with existing drafts.
-
-- Prefer updating exact hosts, new-chat URLs and ordered selectors in `sites.js`. Keep manifest matches aligned. Gemini preserves the account path when reusing a tab.
-- File inputs can appear after opening upload controls. Reacquire the composer after uploading files. A retry is limited to unchanged text-only drafts, since a second click could send duplicate content or omit attachments. A detached editor or disabled Send button can be a rerender and does not confirm delivery.
-- The Gemini/Doubao bridge handles uploads in the page's world without access to Chrome APIs. Doubao supports ProseMirror and older textareas, requires stable live controls, and clicks Send once. A replaced composer with unsent text does not by itself confirm delivery.
-- Google AI Mode checks for attachment previews before submitting and looks for signs of delivery after one click. Changes to Google's UI and account rollout can make the adapter unavailable; do not fall back to text-only submission when files were selected.
+- Update exact hosts, new-chat URLs and ordered selectors in `sites.js` alongside manifest matches. Gemini preserves the account path when reusing a tab.
+- Reacquire the composer after uploads and verify the original URL before modifying the draft. A removed editor or disabled Send button can be a rerender. Provider DOM signals are evidence of submission, with no server acknowledgement.
+- Keep Gemini upload and Doubao delivery in the page's world for framework handlers. Test Doubao's rich-text and legacy editors and verify attachment previews on both.
+- Keep attachment limits consistent with existing drafts. Each displayed MB is 1,048,576 bytes.
 
 ## Validation and release
 
@@ -63,4 +55,4 @@ git diff --check
 
 In a separate Chrome profile, exercise genuine overridden new tabs, single and multiple selection, ordinary Google search, a Google AI Mode request, file-only chat, multiple files, failure recovery, and clipboard/IME shortcuts. Block external traffic or resolve test hosts to a local HTTPS fixture: a new tab's first request can go out before interception. Mock tests verify integration and failure handling; check actual signed-in behavior separately.
 
-For a release, update the version in `manifest.json` and add the matching numbered changelog entry. Check the READMEs, privacy disclosure, asset references, and final diff before committing.
+For a release, move the unreleased notes under a dated version heading and match that version in `manifest.json`. Check the READMEs, privacy disclosure, asset references and final diff before tagging the verified commit.

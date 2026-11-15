@@ -50,7 +50,7 @@ function sortTabs(tabs, preferredWindowId) {
 async function findFirstSiteTab(site, preferredWindowId) {
   const tabs = await chrome.tabs.query({ url: site.tabPatterns });
   return sortTabs(
-    tabs.filter((tab) => Number.isInteger(tab.id)),
+    tabs.filter((tab) => Number.isInteger(tab.id) && tab.status === 'complete' && !tab.pendingUrl),
     preferredWindowId,
   )[0] || null;
 }
@@ -124,9 +124,13 @@ async function prepareNewChat(site, job) {
     const current = await chrome.tabs.get(job.tabId);
     if (!isLauncherTab(current)) throw new Error('The launcher tab was changed before sending.');
   }
-  const existing = job.multiple
+  let existing = job.multiple
     ? (site.id === 'google' ? null : await findFirstSiteTab(site, job.windowId))
     : { id: job.tabId };
+  if (job.multiple && existing) {
+    const current = await chrome.tabs.get(existing.id).catch(() => null);
+    if (!current || current.url !== existing.url || current.status !== 'complete' || current.pendingUrl) existing = null;
+  }
   const url = site.aiModeUrl || RelaySites.getNewChatUrl(site.id, existing?.url);
   const tab = await (existing ? chrome.tabs.update(existing.id, { url }) : createBackgroundTab(url, job.windowId));
   return { tabId: tab?.id, url };

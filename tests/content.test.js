@@ -10,7 +10,7 @@ const contentSource = fs.readFileSync(
 );
 const attachmentSource = fs.readFileSync(path.resolve(__dirname, '..', 'attachments.js'), 'utf8');
 
-function createHarness({ confirmOnClick = 2, acceptedFileTypes = [], editedOnClick } = {}) {
+function createHarness({ confirmOnClick = 2, acceptedFileTypes = [], editedOnClick, navigateOnUpload, google = false, leaveAiModeOnSend = false } = {}) {
   let clock = 0;
   let clickCount = 0;
   let runtimeMessageListener;
@@ -53,6 +53,7 @@ function createHarness({ confirmOnClick = 2, acceptedFileTypes = [], editedOnCli
     dispatchEvent(event) {
       if (event.type === 'change') {
         uploads.push([this.accept, Array.from(this.files, (file) => file.name)]);
+        if (navigateOnUpload) window.location.href = 'https://chatgpt.com/c/other';
       }
       return true;
     }
@@ -63,6 +64,7 @@ function createHarness({ confirmOnClick = 2, acceptedFileTypes = [], editedOnCli
   const sendButton = new FakeElement();
   sendButton.click = () => {
     clickCount += 1;
+    if (leaveAiModeOnSend) window.location.href = 'https://www.google.com/search';
     if (editedOnClick !== undefined) {
       editor.isConnected = false;
       editor = new FakeTextArea();
@@ -73,8 +75,8 @@ function createHarness({ confirmOnClick = 2, acceptedFileTypes = [], editedOnCli
   };
 
   const site = {
-    id: 'chatgpt',
-    name: 'ChatGPT',
+    id: google ? 'google' : 'chatgpt',
+    name: google ? 'Google AI Mode' : 'ChatGPT',
     inputSelectors: ['#editor'],
     sendSelectors: ['#send'],
     attachmentButtonSelectors: [],
@@ -82,6 +84,9 @@ function createHarness({ confirmOnClick = 2, acceptedFileTypes = [], editedOnCli
   };
 
   const document = {
+    body: {
+      get innerText() { return clickCount ? '' : uploads.flatMap(([, names]) => names).join(' '); },
+    },
     querySelectorAll(selector) {
       if (selector === '#editor') return [editor];
       if (selector === '#send') return [sendButton];
@@ -93,7 +98,7 @@ function createHarness({ confirmOnClick = 2, acceptedFileTypes = [], editedOnCli
 
   const window = {
     location: {
-      href: 'https://chatgpt.com/',
+      href: google ? 'https://www.google.com/ai' : 'https://chatgpt.com/',
       origin: 'https://chatgpt.com',
     },
     getComputedStyle() {
@@ -126,7 +131,11 @@ function createHarness({ confirmOnClick = 2, acceptedFileTypes = [], editedOnCli
   };
 
   const context = vm.createContext({
-    RelaySites: { findSiteByUrl: () => site, isGoogleAiPage: () => false },
+    RelaySites: {
+      google: site,
+      findSiteByUrl: () => google ? null : site,
+      isGoogleAiPage: (url) => url === 'https://www.google.com/ai',
+    },
     chrome,
     console: { error() {}, log() {}, warn() {} },
     document,
@@ -170,6 +179,7 @@ function createHarness({ confirmOnClick = 2, acceptedFileTypes = [], editedOnCli
   return {
     submit,
     clickCount: () => clickCount,
+    prompt: () => editor.value,
     uploads,
   };
 }
@@ -227,4 +237,29 @@ test('a send with files is not repeated when the page gives no confirmation', as
   assert.equal(result.ok, false);
   assert.match(result.error, /did not confirm/);
   assert.equal(harness.clickCount(), 1);
+});
+
+test('leaving the original conversation after one upload prevents further files and prompt entry', async () => {
+  const harness = createHarness({ acceptedFileTypes: ['.txt', '.pdf'], navigateOnUpload: true });
+  const result = await harness.submit('Read these', [
+    { name: 'first.txt', type: 'text/plain', dataUrl: 'data:text/plain;base64,YQ==' },
+    { name: 'second.pdf', type: 'application/pdf', dataUrl: 'data:application/pdf;base64,YQ==' },
+  ]);
+  assert.equal(result.ok, false);
+  assert.match(result.error, /destination page changed/);
+  assert.deepEqual(harness.uploads, [['.txt', ['first.txt']]]);
+  assert.equal(harness.prompt(), '');
+  assert.equal(harness.clickCount(), 0);
+});
+
+test('Google AI Mode confirms a cleared draft only while still on an AI Mode page', async () => {
+  const attachment = { name: 'notes.txt', type: 'text/plain', dataUrl: 'data:text/plain;base64,YQ==' };
+  for (const leaveAiModeOnSend of [false, true]) {
+    const harness = createHarness({
+      google: true, leaveAiModeOnSend, confirmOnClick: 1, acceptedFileTypes: ['.txt'],
+    });
+    const result = await harness.submit('Summarize this file', [attachment]);
+    assert.equal(result.ok, !leaveAiModeOnSend);
+    assert.equal(harness.clickCount(), 1);
+  }
 });

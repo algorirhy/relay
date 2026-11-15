@@ -155,6 +155,10 @@
     openGeminiSearchChats();
   }
 
+  function requireDestination(url) {
+    if (window.location.href !== url) throw new Error('The destination page changed before sending.');
+  }
+
   function isPromptEditor(element) {
     if (!isEnabled(element)) return false;
     return (
@@ -165,9 +169,10 @@
     );
   }
 
-  async function waitForPromptEditor(site, timeoutMs = 20000) {
+  async function waitForPromptEditor(site, url, timeoutMs = 20000) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
+      requireDestination(url);
       const editor = findVisibleElement(site.inputSelectors, isPromptEditor);
       if (editor) return editor;
       await delay(250);
@@ -325,19 +330,22 @@
     return true;
   }
 
-  async function waitForFileInput(site, files, editor, timeoutMs = 6000) {
+  async function waitForFileInput(site, files, editor, url, timeoutMs = 6000) {
+    requireDestination(url);
     let input = findFileInput(files);
     if (input) return input;
 
     const clickedKnownControl = tryClickSelectors(site.attachmentButtonSelectors);
     if (!clickedKnownControl) tryClickNearbyAttachmentButton(editor, site);
     await delay(350);
+    requireDestination(url);
     input = findFileInput(files);
     if (input) return input;
 
     tryClickByText(site.attachmentButtonTexts);
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
+      requireDestination(url);
       input = findFileInput(files);
       if (input) return input;
       await delay(150);
@@ -358,40 +366,37 @@
     input.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
   }
 
-  async function attachFiles(site, attachments, editor) {
-    if (!attachments.length) return 0;
+  async function attachFiles(site, attachments, editor, url) {
+    if (!attachments.length) return;
 
-    // Gemini and Doubao bind their upload controls in the page's MAIN world.
-    // Let the bridge discover and drive those controls directly; requiring an
-    // isolated-world input first made valid, dynamically-created inputs look
-    // unavailable.
-    if (site.id === 'doubao' || site.id === 'gemini') {
-      await requestPageMainWorld(site.id, 'page-attach', attachments, 30000);
-      await delay(site.id === 'gemini' ? 1800 : 300);
-      return attachments.length;
+    if (site.id === 'gemini') {
+      await requestPageMainWorld(site.id, 'page-attach', { url, attachments }, 30000);
+      await delay(1800);
+      return;
     }
 
     const files = attachments.map(RelayAttachments.decode);
     // Prefer one upload when a control accepts the whole batch.
-    const input = await waitForFileInput(site, files, editor);
+    const input = await waitForFileInput(site, files, editor, url);
+    requireDestination(url);
     if (input && (input.multiple || files.length === 1)) {
       setInputFiles(input, files);
       await delay(500);
-      return files.length;
+      return;
     }
     if (files.length === 1) {
       throw new Error(`${site.name} did not expose a compatible upload control for ${files[0].name}.`);
     }
 
     for (const file of files) {
-      const singleInput = await waitForFileInput(site, [file], editor);
+      const singleInput = await waitForFileInput(site, [file], editor, url);
+      requireDestination(url);
       if (!singleInput) {
         throw new Error(`${site.name} did not expose a compatible upload control for ${file.name}.`);
       }
       setInputFiles(singleInput, [file]);
       await delay(500);
     }
-    return files.length;
   }
 
   function submitWithEnter(editor) {
@@ -416,7 +421,7 @@
     editor.dispatchEvent(new KeyboardEvent('keyup', eventInit));
   }
 
-  function requestPageMainWorld(siteId, action, attachments = [], timeoutMs = 10000, prompt = '') {
+  function requestPageMainWorld(siteId, action, payload, timeoutMs) {
     const requestId = `${action}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const resultAction = `${action}-result`;
 
@@ -449,8 +454,7 @@
         action,
         siteId,
         requestId,
-        attachments,
-        prompt,
+        ...payload,
       }, window.location.origin);
     });
   }
@@ -472,10 +476,11 @@
     const url = window.location.href;
     if (!prompt.trim() || !attachments.length) throw new Error('Google AI Mode needs a question with the files.');
 
-    const editor = await waitForPromptEditor(site, 6000).catch(() => {
+    const editor = await waitForPromptEditor(site, url, 6000).catch(() => {
+      requireDestination(url);
       throw new Error('Google AI Mode input is unavailable. Check that AI Mode is enabled for your account.');
     });
-    if (window.location.href !== url) throw new Error('The destination page changed before uploading.');
+    requireDestination(url);
     const files = attachments.map(RelayAttachments.decode);
     const previewCount = () => {
       const labels = files.filter(({ name }) => document.body.innerText.includes(name)).length;
@@ -500,12 +505,16 @@
     }
 
     const deadline = Date.now() + 20000;
-    while (Date.now() < deadline && previewCount() - initialPreviews < files.length) await delay(200);
+    while (Date.now() < deadline && previewCount() - initialPreviews < files.length) {
+      requireDestination(url);
+      await delay(200);
+    }
+    requireDestination(url);
     if (previewCount() - initialPreviews < files.length) {
       throw new Error('Google AI Mode did not show all files. Add them directly in Google AI Mode.');
     }
-    const liveEditor = await waitForPromptEditor(site, 6000);
-    if (window.location.href !== url) throw new Error('The destination page changed before sending.');
+    const liveEditor = await waitForPromptEditor(site, url, 6000);
+    requireDestination(url);
     await fillPrompt(liveEditor, prompt);
     const send = await waitForSendButton(site, 10000);
     if (!send) throw new Error('Google AI Mode did not expose an enabled Send button.');
@@ -518,9 +527,12 @@
     send.click();
     const submissionDeadline = Date.now() + 6000;
     while (Date.now() < submissionDeadline) {
+      if (window.location.href !== url) {
+        if (RelaySites.isGoogleAiPage(window.location.href)) return { ok: true, method: 'button' };
+        break;
+      }
       const current = findVisibleElement(site.inputSelectors, isPromptEditor);
-      if ((window.location.href !== url && RelaySites.isGoogleAiPage(window.location.href)) ||
-          userMessageCount() > initialMessages ||
+      if (userMessageCount() > initialMessages ||
           (current && !readEditorText(current).trim() && previewCount() <= initialPreviews)) {
         return { ok: true, method: 'button' };
       }
@@ -549,8 +561,7 @@
 
   async function performSubmissionAttempt(site, draft, hasAttachments) {
     const sendButton = await waitForSendButton(site, hasAttachments ? 60000 : 6000);
-
-    // Before a repeat attempt, check whether the first one finished meanwhile.
+    // A delayed first attempt can finish while waiting for Send to become ready.
     if (draft.previousAttempt && hasSubmissionEvidence(site, draft.previousAttempt)) {
       return { confirmed: true, method: draft.previousAttempt.method };
     }
@@ -585,20 +596,10 @@
     };
   }
 
-  async function sendPrompt(site, draft, attachmentCount) {
-    if (site.id === 'doubao') {
-      const sendButton = await waitForSendButton(site, attachmentCount ? 60000 : 6000);
-      if (!sendButton) throw new Error('Doubao did not expose an enabled send control.');
-
-      if (window.location.href !== draft.url) throw new Error('The destination page changed before sending.');
-      const result = await requestPageMainWorld('doubao', 'page-submit', [], 70000, draft.prompt);
-      if (!result.submitted) throw new Error('Doubao did not confirm that the message was submitted.');
-      return result.method;
-    }
-
-    const first = await performSubmissionAttempt(site, draft, attachmentCount > 0);
+  async function sendPrompt(site, draft, hasAttachments) {
+    const first = await performSubmissionAttempt(site, draft, hasAttachments);
     if (first.confirmed) return first.method;
-    if (!attachmentCount) {
+    if (!hasAttachments) {
       const second = await performSubmissionAttempt(site, { ...draft, previousAttempt: first.snapshot }, false);
       if (second.confirmed) return second.method;
     }
@@ -607,9 +608,8 @@
   }
 
   async function submitPrompt({ prompt, attachments: serializedAttachments = [], expectedUrl }) {
-    if (expectedUrl && window.location.href !== expectedUrl) {
-      throw new Error('The destination page changed before sending.');
-    }
+    const url = expectedUrl || window.location.href;
+    requireDestination(url);
     const normalizedPrompt = typeof prompt === 'string' ? prompt : '';
     const attachments = Array.isArray(serializedAttachments) ? serializedAttachments : [];
     if (RelaySites.isGoogleAiPage(window.location.href)) return submitGoogleAiMode(normalizedPrompt, attachments);
@@ -619,19 +619,25 @@
       throw new Error('The message and attachment list are empty.');
     }
 
-    const draft = { url: window.location.href, prompt: normalizedPrompt, text: normalizedPrompt.trim() };
-    let editor = await waitForPromptEditor(site);
-    const attachmentCount = await attachFiles(site, attachments, editor);
+    if (site.id === 'doubao') {
+      const result = await requestPageMainWorld(
+        site.id, 'page-submit', { url, prompt: normalizedPrompt, attachments }, 90000,
+      );
+      return { ok: true, siteId: site.id, method: result.method, attachmentCount: attachments.length };
+    }
+
+    const draft = { url, text: normalizedPrompt.trim() };
+    let editor = await waitForPromptEditor(site, url);
+    const attachmentCount = attachments.length;
+    // Upload widgets can replace the composer before the prompt is filled.
     if (attachmentCount) {
-      // Upload widgets on sites such as Grok can replace the composer node.
-      // Always reacquire the live editor before inserting the prompt.
-      editor = await waitForPromptEditor(site);
+      await attachFiles(site, attachments, editor, url);
+      editor = await waitForPromptEditor(site, url);
     }
-    if (normalizedPrompt.trim()) {
-      await fillPrompt(editor, normalizedPrompt);
-    }
+    requireDestination(url);
+    if (draft.text) await fillPrompt(editor, normalizedPrompt);
     await delay(150);
-    const method = await sendPrompt(site, draft, attachmentCount);
+    const method = await sendPrompt(site, draft, attachmentCount > 0);
     console.log(`${LOG_PREFIX} Submitted a message for ${site.name} using ${method}.`);
     return { ok: true, siteId: site.id, method, attachmentCount };
   }

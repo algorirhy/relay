@@ -6,7 +6,7 @@ const vm = require('node:vm');
 
 const read = (file) => fs.readFileSync(path.resolve(__dirname, '..', file), 'utf8');
 
-function createHarness({ richText = true, confirm = true, replace = false, acceptsText = true, alteredDraft = '', disappear = false } = {}) {
+function createHarness({ richText = true, confirm = true, replace = false, acceptsText = true, alteredDraft = '', disappear = false, navigateAt = Infinity, preview = false, sendAfterTyping = false } = {}) {
   let clock = 1;
   let insertions = 0;
   let clicks = 0;
@@ -44,11 +44,26 @@ function createHarness({ richText = true, confirm = true, replace = false, accep
   }
 
   const root = new Element();
+  const upload = new Element();
+  upload.accept = '';
+  upload.multiple = true;
+  let hasPreview = false;
+  let uploads = 0;
+  upload.dispatchEvent = (event) => {
+    if (event.type === 'change') {
+      uploads += 1;
+      hasPreview = preview;
+    }
+  };
+  root.querySelectorAll = (selector) => hasPreview && selector.includes('[data-file-name]') ? [
+    { getAttribute: (name) => name === 'data-file-name' ? 'notes.txt' : null },
+  ] : [];
   let editor = richText ? new RichEditor() : new TextArea();
   const button = new Element();
   button.id = 'flow-end-msg-send';
   button.click = () => {
     clicks += 1;
+    if (confirm) hasPreview = false;
     if (disappear) {
       editor.isConnected = false;
       editor = null;
@@ -75,6 +90,7 @@ function createHarness({ richText = true, confirm = true, replace = false, accep
     // Long timers are bridge watchdogs; only advance the polling clock here.
     if (milliseconds < 1000) {
       clock += milliseconds;
+      if (clock >= navigateAt) location.href = 'https://www.doubao.com/chat/another';
       queueMicrotask(callback);
     }
     return 1;
@@ -94,11 +110,13 @@ function createHarness({ richText = true, confirm = true, replace = false, accep
       }
     },
   };
+  const readyButton = () => !sendAfterTyping || Boolean(editor?.innerText || editor?.value);
   const document = {
     addEventListener() {},
-    querySelector(selector) { return selector === '#flow-end-msg-send' ? button : null; },
+    querySelector(selector) { return selector === '#flow-end-msg-send' && readyButton() ? button : null; },
     querySelectorAll(selector) {
-      if (selector === '#flow-end-msg-send') return [button];
+      if (selector === '#flow-end-msg-send') return readyButton() ? [button] : [];
+      if (selector === 'input[type="file"]') return [upload];
       if (!editor) return [];
       if (richText && selector === '#input-engine-container [contenteditable="true"]') return [editor];
       if (richText && selector === 'div[contenteditable="true"]') return [editor];
@@ -121,7 +139,12 @@ function createHarness({ richText = true, confirm = true, replace = false, accep
     getComputedStyle: style,
     HTMLTextAreaElement: TextArea,
     HTMLInputElement: class extends Element {},
-    Event: class {}, InputEvent: class {}, KeyboardEvent: class {}, MouseEvent: class {},
+    File, atob,
+    DataTransfer: class {
+      files = [];
+      items = { add: (file) => this.files.push(file) };
+    },
+    Event: class { constructor(type) { this.type = type; } }, InputEvent: class {}, KeyboardEvent: class {}, MouseEvent: class {},
     navigator: { platform: 'MacIntel' },
     console: { log() {}, error() {} },
     chrome: { runtime: { onMessage: { addListener(listener) { runtimeListener = listener; } } } },
@@ -135,12 +158,13 @@ function createHarness({ richText = true, confirm = true, replace = false, accep
   return {
     editor: () => editor,
     clicks: () => clicks,
+    uploads: () => uploads,
     insertions: () => insertions,
-    async submit(prompt) {
-      return new Promise((resolve) => runtimeListener({ action: 'submit-prompt', prompt, attachments: [] }, {}, resolve));
+    async submit(prompt, attachments = []) {
+      return new Promise((resolve) => runtimeListener({ action: 'submit-prompt', prompt, attachments }, {}, resolve));
     },
     async submitMain(prompt) {
-      window.postMessage({ source: 'relay-extension', siteId: 'doubao', action: 'page-submit', requestId: 'test', prompt });
+      window.postMessage({ source: 'relay-extension', siteId: 'doubao', action: 'page-submit', requestId: 'test', url: location.href, prompt });
       for (let index = 0; index < 2000 && !results.length; index += 1) await new Promise(queueMicrotask);
       assert.equal(results.length, 1, 'bridge must return one result');
       return results[0];
@@ -170,7 +194,7 @@ test('Doubao main-world entry can insert text into a contenteditable without tex
   const harness = createHarness();
   const response = await harness.submitMain('rich text');
   assert.equal(response.ok, true);
-  assert.equal(response.submitted, true);
+  assert.equal(response.method, 'button');
   assert.equal(harness.insertions(), 1);
 });
 
@@ -205,4 +229,39 @@ test('Doubao does not confirm a send merely because the editor disappears', asyn
   assert.equal(response.ok, false);
   assert.match(response.error, /did not confirm/);
   assert.equal(harness.clicks(), 1);
+});
+
+const note = { name: 'notes.txt', type: 'text/plain', dataUrl: 'data:text/plain;base64,YQ==' };
+
+test('Doubao fills a text draft before looking for an enabled Send button', async () => {
+  const harness = createHarness({ sendAfterTyping: true });
+  const response = await harness.submit('Unlock Send');
+  assert.equal(response.ok, true);
+  assert.equal(harness.clicks(), 1);
+});
+
+test('Doubao stops before clicking Send if the conversation changes during readiness checks', async () => {
+  const harness = createHarness({ navigateAt: 300 });
+  const response = await harness.submit('Stay in the fresh chat');
+  assert.equal(response.ok, false);
+  assert.match(response.error, /destination page changed/);
+  assert.equal(harness.clicks(), 0);
+});
+
+test('Doubao submits a file-only draft once its uploaded file appears and confirms when it clears', async () => {
+  const harness = createHarness({ preview: true });
+  const response = await harness.submit('', [note]);
+  assert.equal(response.ok, true);
+  assert.equal(response.attachmentCount, 1);
+  assert.equal(harness.uploads(), 1);
+  assert.equal(harness.clicks(), 1);
+});
+
+test('Doubao does not send a draft whose uploaded file never appears', async () => {
+  const harness = createHarness();
+  const response = await harness.submit('Read notes.txt', [note]);
+  assert.equal(response.ok, false);
+  assert.match(response.error, /did not show all attachments/);
+  assert.equal(harness.uploads(), 1);
+  assert.equal(harness.clicks(), 0);
 });

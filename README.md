@@ -32,7 +32,7 @@ Open a new tab or click Relay in the toolbar. Choose Google for a web search or 
 
 Turn on **Multiple services** and choose your destinations. All seven are initially selected. For example, select ChatGPT, Claude, and Gemini, deselect the other destinations, and press **Enter** to ask all three the same question. Read and compare their replies in their respective tabs.
 
-The launcher stays open. Google opens in a new background tab. Each chat service can reuse a matching tab, with preference for the current window, and starts a fresh chat.
+The launcher stays open. Google opens in a new background tab. Chat services start a fresh chat and may reuse a fully loaded tab, with preference for the current window.
 
 ### Attachments
 
@@ -56,7 +56,7 @@ Page shortcuts work after focus enters the page. Chrome may initially keep focus
 
 Each destination runs independently. **Opened Google search** indicates that a tab opened. **Sent to …** indicates that Relay observed signs of submission on the page. Most chat adapters can retry a text-only send once if the draft is unchanged. Doubao and requests with files are submitted at most once. Check the destination before retrying an unconfirmed send.
 
-A failed or interrupted task keeps a temporary draft. If a single delivery fails and the tab is still on the page Relay opened, it returns to the launcher. Restored drafts show files marked **(add again)**; reselect or remove them before retrying. A multiple-service draft that stays open keeps its selected files. **Copy prompt** copies only the text.
+A failed or interrupted task keeps a temporary draft. If a single delivery fails and the tab is still on the page Relay opened, it returns to the launcher. Restored drafts show files marked **(add again)**; reselect or remove them before retrying. If any destination fails, an open launcher keeps the draft and selected files. Review the results before choosing which services to retry. All destinations succeeding clears the composer. **Copy prompt** copies only the text.
 
 If a site's controls are unavailable, check your sign-in and account access, then try the site directly. For Google AI Mode, you can attach files using Google's own controls.
 

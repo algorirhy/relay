@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Tie uploads, prompt entry, and submission to the destination page selected for the job. Leave tabs with active navigation alone when choosing a tab to reuse.
+- Handle Doubao uploads and submission in one request. Wait for attachment previews and stable controls, then click Send once. Keep the draft available if delivery cannot be confirmed.
+- Distinguish a lost acknowledgement from a rejected request. Clear the composer after all destinations succeed so a second Enter cannot repeat the delivery.
+- Document the launcher, recovery, and provider state transitions in the [development guide](docs/DEVELOPMENT.md).
+
 ## 2.0.0 — 2026-11-14
 
 - Relay replaces the legacy popup with a Chrome new-tab launcher for Google and six AI chat services. Choose one service or send to several at once.

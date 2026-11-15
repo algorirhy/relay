@@ -32,6 +32,7 @@
   }
 
   function editDraft() {
+    if (phase !== 'editing') return;
     discardRecovery();
     status.textContent = '';
     updateControls();
@@ -224,6 +225,7 @@
       status.dataset.state = result.ok ? 'success' : 'error';
       copyButton.hidden = result.ok || !input.value.trim();
       if (result.ok) {
+        input.value = '';
         attachments = [];
         renderFiles();
         discardRecovery();
@@ -270,12 +272,16 @@
         return;
       }
       if (hasFiles) status.textContent = 'Reading files…';
+      const files = hasFiles ? await Promise.all(attachments.map(readAttachment)) : [];
       const response = await chrome.runtime.sendMessage({
         action: 'launch-prompt', prompt: text, multiple,
         siteIds: destinations(),
-        ...(hasFiles ? { attachments: await Promise.all(attachments.map(readAttachment)) } : {}),
-      });
-      if (!response?.accepted) throw new Error(response?.error || 'The delivery task was not accepted. Nothing was sent.');
+        ...(files.length ? { attachments: files } : {}),
+      }).catch(() => null);
+      if (!response || (response.accepted && !response.jobId)) {
+        throw new Error('Could not confirm whether delivery started. Check the destination before retrying.');
+      }
+      if (!response.accepted) throw new Error(response.error || 'The delivery task was not accepted.');
       currentJobId = response.jobId;
       phase = 'waiting';
       status.textContent = 'Opening fresh chats and sending…';
@@ -373,10 +379,13 @@
     editDraft();
   });
   copyButton.addEventListener('click', async () => {
+    const text = input.value;
+    const stillCurrent = () => phase === 'editing' && !copyButton.hidden && input.value === text;
     try {
-      await navigator.clipboard.writeText(input.value);
-      copyButton.textContent = 'Copied';
+      await navigator.clipboard.writeText(text);
+      if (stillCurrent()) copyButton.textContent = 'Copied';
     } catch {
+      if (!stillCurrent()) return;
       status.textContent = 'Could not copy. Your text is selected for manual copying.';
       input.focus();
       input.select();
