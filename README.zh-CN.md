@@ -2,7 +2,7 @@
   <img src="./icons/relay-256.png" width="72" height="72" alt="Relay 标志" />
 </p>
 
-<h1 align="center">Relay</h1>
+<h1 align="center">Relay · 在 Chrome 新标签页搜索 Google、向多个 AI 提问</h1>
 <p align="center">从一个想法开始。</p>
 <p align="center">
   <a href="./README.md">English</a> ·
@@ -11,23 +11,28 @@
   <a href="./CHANGELOG.md">更新记录</a>
 </p>
 
-Relay 把 Google 搜索和 ChatGPT、Claude、Gemini、Grok、DeepSeek、豆包的对话入口集中到 Chrome 新标签页。英文界面跟随系统主题，直接加载仓库即可使用。
+Relay 是一款开源 Chrome 扩展。你可以在新标签页搜索 Google，也可以把同一个问题和附件同时发送给多个 AI。支持 ChatGPT、Claude、Gemini、Grok、DeepSeek 和豆包，各服务在自己的浏览器标签页中打开。
 
-![Relay 默认的新标签页，仅选中 Google](./docs/relay-new-tab.png)
+![Relay 的 Chrome 新标签页，默认选中 Google 搜索，并显示 AI 服务和附件按钮](./docs/relay-new-tab.png)
 
 ## 安装
 
-1. 打开 `chrome://extensions`，启用**开发者模式**。
-2. 点击**加载已解压的扩展程序**，选择包含 `manifest.json` 的项目根目录。
-3. 可将 Relay 固定到工具栏，方便打开启动器。
+1. [下载 Relay 2.0.0](https://github.com/algorirhy/relay/archive/refs/tags/v2.0.0.zip) 并解压。
+2. 打开 `chrome://extensions`，启用**开发者模式**。
+3. 点击**加载已解压的扩展程序**，选择解压后包含 `manifest.json` 的文件夹。
+4. 打开 Chrome 新标签页。也可以把 Relay 固定到工具栏。
 
 更新文件后，点击扩展的**重新加载**按钮，刷新已打开的服务页面，再打开一个新标签页。如果其他扩展接管了新标签页，请停用该扩展。
 
-## 使用
+## 搜索 Google 或开启单个 AI 对话
 
-打开新标签页，或点击工具栏的 Relay 图标。选择服务，准备好文字或附件后按 **Enter**。单服务模式在当前标签页打开搜索或新对话。草稿为空时，直接打开所选服务。
+打开新标签页，或点击工具栏的 Relay 图标。选择 Google 搜索网页，或选择一个 AI 服务开启新对话。输入文字后按 **Enter**，草稿为空时会直接打开选中的服务。Relay 默认使用单服务模式，并记住上次选中的服务。
 
-开启 **Multiple services** 后，可从七个服务中任选，初始全选。启动器保持打开；Google 在后台新建标签页，AI 服务优先复用当前窗口的匹配标签页，再查找其他窗口或新建。每个新启动器默认使用单服务模式，并记住上次的单选服务。
+## 把同一个问题发送给多个 AI
+
+开启 **Multiple services** 后，可从七个服务中任选，初始全选。比如，只保留 ChatGPT、Claude 和 Gemini，按 **Enter** 就能把同一个问题发给三家，再到各自的标签页比较回答。
+
+启动器保持打开。Google 会在后台新建标签页，聊天服务会优先复用当前窗口中匹配的标签页，并开启新对话。
 
 ### 附件
 
@@ -55,9 +60,9 @@ Relay 把 Google 搜索和 ChatGPT、Claude、Gemini、Grok、DeepSeek、豆包�
 
 如果网站没有出现可用的发送或上传控件，请确认已登录、账号可使用该功能，再尝试在网站上操作。Google AI Mode 也可以使用页面自带的附件入口。
 
-## 隐私
+## 需要 AI 服务的 API 密钥吗？
 
-草稿通过临时会话记录恢复，附件内容只留在内存中。存储字段、清理规则和网站访问范围见[隐私说明](./PRIVACY.md)。
+Relay 使用浏览器里已有的登录状态，通过所选服务的网页发送问题和附件。无需 API 密钥、构建步骤或单独注册 Relay 账号。附件内容只保留在内存中。草稿恢复会保存哪些数据，见[隐私说明](./PRIVACY.md)。
 
 ## 开发
 

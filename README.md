@@ -2,7 +2,7 @@
   <img src="./icons/relay-256.png" width="72" height="72" alt="Relay logo" />
 </p>
 
-<h1 align="center">Relay</h1>
+<h1 align="center">Relay · Chrome New Tab for Google Search and AI Chat</h1>
 <p align="center">Start with a thought.</p>
 <p align="center">
   <a href="./README.zh-CN.md">简体中文</a> ·
@@ -11,23 +11,28 @@
   <a href="./CHANGELOG.md">Changelog</a>
 </p>
 
-Relay turns Chrome's new tab into a launcher for Google search, ChatGPT, Claude, Gemini, Grok, DeepSeek, and Doubao. Its English interface follows your system theme. Load it directly from the repository.
+Relay is an open-source Chrome extension that lets you search Google or send the same prompt and attachments to multiple AI chatbots from a new tab. It supports ChatGPT, Claude, Gemini, Grok, DeepSeek, and Doubao. Each service opens in its own browser tab.
 
-![Relay’s default Chrome new tab with Google selected](./docs/relay-new-tab.png)
+![Relay Chrome new tab with Google Search selected, AI service shortcuts, and an Attach button](./docs/relay-new-tab.png)
 
 ## Install
 
-1. Open `chrome://extensions` and enable **Developer mode**.
-2. Click **Load unpacked** and select the project root containing `manifest.json`.
-3. Optionally pin Relay to the toolbar for quick access.
+1. [Download Relay 2.0.0](https://github.com/algorirhy/relay/archive/refs/tags/v2.0.0.zip) and unzip it.
+2. Open `chrome://extensions` and enable **Developer mode**.
+3. Click **Load unpacked** and select the extracted folder containing `manifest.json`.
+4. Open a new Chrome tab. You can also pin Relay to the toolbar.
 
 After updating the files, click **Reload** on the extension, refresh any open provider pages, and open a new tab. If another extension replaces the new tab, disable it to use Relay.
 
-## Use
+## Search Google or start one AI chat
 
-Open a new tab or click Relay in the toolbar. Pick a service and press **Enter** when your draft is ready. Single mode uses the current tab for the search or fresh chat. An empty draft opens the selected service.
+Open a new tab or click Relay in the toolbar. Choose Google for a web search or an AI service for a fresh chat. Enter your text and press **Enter**. An empty draft opens the selected service. The launcher starts in single mode and remembers your last single-service choice.
 
-Turn on **Multiple services** to use any combination of the seven destinations. All seven are initially selected. The launcher stays open; Google gets a new background tab, and each chat service reuses a matching tab (preferring this window) or opens a new one. Each new launcher defaults to single mode and remembers the last single-service choice.
+## Send the same prompt to multiple AI chatbots
+
+Turn on **Multiple services** and choose your destinations. All seven are initially selected. For example, select ChatGPT, Claude, and Gemini, deselect the other destinations, and press **Enter** to ask all three the same question. Read and compare their replies in their respective tabs.
+
+The launcher stays open. Google opens in a new background tab. Each chat service can reuse a matching tab, with preference for the current window, and starts a fresh chat.
 
 ### Attachments
 
@@ -55,9 +60,9 @@ A failed or interrupted task keeps a temporary draft. If a single delivery fails
 
 If a site's controls are unavailable, check your sign-in and account access, then try the site directly. For Google AI Mode, you can attach files using Google's own controls.
 
-## Privacy
+## Do I need AI API keys?
 
-Relay uses temporary session storage for draft recovery and keeps attachment contents in memory. See [Privacy and permissions](./PRIVACY.md) for the stored fields, cleanup rules, and site access.
+Relay uses your existing browser sign-ins and sends prompts and files through the selected services’ websites. It requires no API keys, build step, or separate Relay account. Relay holds file contents in memory. See [Privacy and permissions](./PRIVACY.md) for what Relay stores to recover drafts.
 
 ## Development
 
