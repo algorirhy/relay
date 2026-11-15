@@ -21,6 +21,27 @@ Single mode uses the source tab. Multiple mode runs destinations independently u
 
 Chrome can report `chrome://newtab/` in `tabs.get` even though the sender is the extension document. Accept that alias only for source-tab state; keep sender validation strict.
 
+## State inventory
+
+The launcher restores a session record, then enters editing or waits for that job. Submitting locks the draft while preparing files and waiting for an acknowledgement. An accepted job stays locked while Relay reads its status. The launcher retries two failed reads for the same job ID. If it still cannot read the status, it restores editing and asks the user to check the destination. Direct navigation leaves the launcher.
+
+| Flow | States and owner | Invariant or follow-up |
+| --- | --- | --- |
+| Launcher lifecycle | `newtab.js`: restoring → editing → submitting → waiting → editing. Direct opens go from editing to navigating. | One phase controls input. Poll results must match the current job ID. |
+| Destination selection | `newtab.js`: single selection or a set of multiple selections. The last single selection is stored separately. | Switching mode preserves both selections and derives whether Google needs a question. |
+| Input events | `newtab.js`: normal input or IME composition. Drag hover and copy feedback are local UI states. | Composition suppresses shortcuts. Hover and copy feedback belong to the current page. |
+| Attachments | `newtab.js`: selected file → reading → encoded payload. Recovery creates metadata-only entries until the user reselects or removes them. | Pending file reads lock edits. Missing files block submission. |
+| Draft recovery | `background.js`: no record → pending → complete, or interrupted on read if the worker no longer owns the pending ID. Closing the source tab or expiry removes the record. | Register, read, finalize, and delete records serially per launcher tab. A live job does not expire. An interrupted record is never replayed. |
+| Destination arbitration | `background.js`: waiting for the site lock → opening or reusing a tab → page load → adapter ready → sent or failed. Google web search only opens a tab. | Serial per service and concurrent across services. The readiness check binds delivery to the loaded URL. |
+| Generic chat submit | `content.js`: locate editor → attach if needed → fill → wait for Send → observe confirmation. | An unchanged text-only draft can retry once. A file send cannot retry automatically. |
+| Google AI Mode | `content.js`: locate editor → insert files → wait for previews → fill → submit once → confirm or fail. | Check the original URL before uploading and submitting. Attachment and confirmation signals still depend on the site UI. |
+| Page bridge requests | `content.js` and `page-main.js`: install the page listener once, then wait for each request ID to resolve, reject, or time out. | Success and timeout both remove the isolated-world listener. |
+| Gemini upload | `page-main.js`: find input → open upload menu if needed → use compatible or shared input → hand off to generic submit. | The DOM determines readiness. Keep this bounded wait local to Gemini. |
+| Doubao upload and submit | `page-main.js`: track one pending upload → wait for ready, stable controls → send once → confirm or fail. | Upload readiness uses site signals and a timed fallback. A missing composer alone cannot confirm submission. Check real provider behavior before changing upload heuristics. |
+| Provider shortcuts | `content.js` and `background.js`: dispatch the shortcut, then use a site control, keyboard event, or new-chat navigation. | These are bounded fallbacks. They do not retain separate task state. |
+
+The catalog in `sites.js` and payload validation in `attachments.js` are stateless. A shared state-machine library would add coordination between unrelated flows. Model a separate transition explicitly when it owns persistent data or needs to reject a stale event.
+
 ## Adapter maintenance
 
 The attachment limit uses 1,048,576 bytes per displayed MB for compatibility with existing drafts.

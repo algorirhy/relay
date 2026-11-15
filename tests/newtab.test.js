@@ -6,7 +6,7 @@ const vm = require('node:vm');
 
 const root = path.resolve(__dirname, '..');
 
-async function createHarness({ saved = null, storageFails = false, clipboardFails = false, clipboardMissing = false, submitGate = null, rejectLaunch = false, initialJob = null, navigationFails = false } = {}) {
+async function createHarness({ saved = null, storageFails = false, clipboardFails = false, clipboardMissing = false, submitGate = null, rejectLaunch = false, initialJob = null, navigationFails = false, pollFailures = 0 } = {}) {
   class Element {
     constructor(tagName = 'div') {
       this.tagName = tagName;
@@ -60,7 +60,13 @@ async function createHarness({ saved = null, storageFails = false, clipboardFail
     } } },
     chrome: { runtime: { async sendMessage(message) {
       records.messages.push(JSON.parse(JSON.stringify(message)));
-      if (message.action === 'launcher-job') return {ok:true, job};
+      if (message.action === 'launcher-job') {
+        if (job?.id === 'test-job' && pollFailures > 0) {
+          pollFailures -= 1;
+          throw new Error('Worker unavailable');
+        }
+        return { ok: true, job };
+      }
       if (message.action === 'clear-launcher-job') {job=null; return {ok:true};}
       if (message.action === 'launch-prompt') {
         if (submitGate) await submitGate;
@@ -366,4 +372,18 @@ test('retrying a restored draft keeps its recovery record if the worker refuses 
   assert.equal(h.elements.prompt.value, 'Keep me');
   assert.match(h.elements.status.textContent, /Nothing was sent/);
   assert.equal(h.records.messages.some((message) => message.action === 'clear-launcher-job'), false);
+});
+
+test('a failed status read keeps an accepted submission locked until the next poll', async () => {
+  const h = await createHarness({ pollFailures: 1 });
+  h.choose('chatgpt');
+  h.type('Already accepted');
+  h.elements['launcher-form'].emit('submit');
+  await h.settle();
+  assert.equal(h.elements.prompt.disabled, true);
+  h.elements['launcher-form'].emit('submit');
+  assert.equal(h.records.messages.filter(({ action }) => action === 'launch-prompt').length, 1);
+  await h.finish({ ok: true, results: [{ ok: true, name: 'ChatGPT' }] });
+  assert.match(h.elements.status.textContent, /Sent to ChatGPT/);
+  assert.equal(h.elements.prompt.disabled, false);
 });

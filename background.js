@@ -5,6 +5,8 @@ importScripts('sites.js', 'attachments.js');
 
 const LOG_PREFIX = '[Relay]';
 const siteLocks = new Map();
+const launcherRecordQueue = new Map();
+const activeLauncherJobs = new Map();
 let nextLauncherJobId = 1;
 
 function delay(milliseconds) {
@@ -130,15 +132,13 @@ async function prepareNewChat(site, job) {
   return { tabId: tab?.id, url };
 }
 
-function runWithSiteLock(siteId, task) {
-  const previous = siteLocks.get(siteId) || Promise.resolve();
+function runSerially(queue, key, task) {
+  const previous = queue.get(key) || Promise.resolve();
   const current = previous.catch(() => {}).then(task);
-  siteLocks.set(siteId, current);
+  queue.set(key, current);
 
   return current.finally(() => {
-    if (siteLocks.get(siteId) === current) {
-      siteLocks.delete(siteId);
-    }
+    if (queue.get(key) === current) queue.delete(key);
   });
 }
 
@@ -173,7 +173,7 @@ async function notifyResults(results) {
 }
 
 function deliverToChatService(site, job, attachments, navigation) {
-  return runWithSiteLock(site.id, async () => {
+  return runSerially(siteLocks, site.id, async () => {
     try {
       const { tabId, url } = await prepareNewChat(site, job);
       if (!Number.isInteger(tabId)) throw new Error('Chrome did not return a usable tab.');
@@ -206,7 +206,6 @@ function deliverToChatService(site, job, attachments, navigation) {
 }
 
 // One session-only recovery record per launcher tab; no permanent prompt log.
-const launcherTasks = new Map();
 const launcherKey = (tabId) => `launcher:${tabId}`;
 
 function launcherTab(sender) {
@@ -218,15 +217,16 @@ function launcherTab(sender) {
 
 async function readLauncherJob(tabId) {
   const key = launcherKey(tabId);
-  let job = (await chrome.storage.session.get(key))[key];
+  const job = (await chrome.storage.session.get(key))[key];
   if (!job) return null;
-  if (Date.now() - job.createdAt > 60 * 60 * 1000) {
+  if (activeLauncherJobs.get(tabId) === job.id) return job;
+  if (Date.now() - (job.finishedAt ?? job.createdAt) > 60 * 60 * 1000) {
     await chrome.storage.session.remove(key);
     return null;
   }
-  if (job.state === 'pending' && !launcherTasks.has(tabId)) {
-    job = { ...job, state: 'interrupted', error: 'Delivery was interrupted. Check the service before retrying.' };
-    await chrome.storage.session.set({ [key]: job });
+  if (job.state === 'pending') {
+    // Only this worker's in-memory records can own a running delivery.
+    return { ...job, state: 'interrupted', error: 'Delivery was interrupted. Check the service before retrying.' };
   }
   return job;
 }
@@ -253,35 +253,39 @@ async function runLauncherJob(job, attachments) {
         return deliverToChatService({ ...site, name: 'Google AI Mode' }, job, attachments, navigation);
       }));
     const result = { ok: results.every((item) => item.ok), results };
-    await notifyResults(results);
-    // Do not recreate a recovery record after the source tab has been closed.
-    try { await chrome.tabs.get(job.tabId); } catch {
-      await chrome.storage.session.remove(launcherKey(job.tabId));
-      return;
-    }
-    await chrome.storage.session.set({ [launcherKey(job.tabId)]: {
-      ...job, state: 'complete', result,
-      prompt: result.ok ? '' : job.prompt,
-      files: result.ok ? [] : job.files,
-    } });
-    if (!job.multiple && !result.ok && navigation.url) {
-      const tab = await chrome.tabs.get(job.tabId);
-      // A login redirect or user navigation must not be overwritten.
-      if (!tab.pendingUrl && tab.url === navigation.url) {
-        await chrome.tabs.update(job.tabId, { url: chrome.runtime.getURL('newtab.html') });
+    await runSerially(launcherRecordQueue, job.tabId, async () => {
+      try {
+        // Do not recreate a recovery record after the source tab has been closed.
+        try { await chrome.tabs.get(job.tabId); } catch {
+          await chrome.storage.session.remove(launcherKey(job.tabId));
+          return;
+        }
+        await chrome.storage.session.set({ [launcherKey(job.tabId)]: {
+          ...job, state: 'complete', finishedAt: Date.now(), result,
+          prompt: result.ok ? '' : job.prompt,
+          files: result.ok ? [] : job.files,
+        } });
+        if (!job.multiple && !result.ok && navigation.url) {
+          const tab = await chrome.tabs.get(job.tabId);
+          // A login redirect or user navigation must not be overwritten.
+          if (!tab.pendingUrl && tab.url === navigation.url) {
+            await chrome.tabs.update(job.tabId, { url: chrome.runtime.getURL('newtab.html') });
+          }
+        }
+      } finally {
+        activeLauncherJobs.delete(job.tabId);
       }
-    }
+    });
+    void notifyResults(results);
   } catch (error) {
     console.error(`${LOG_PREFIX} Launcher delivery:`, error);
-    await notifyDeliveryError(error);
-  } finally {
-    if (launcherTasks.get(job.tabId) === job.id) launcherTasks.delete(job.tabId);
+    if (activeLauncherJobs.get(job.tabId) === job.id) activeLauncherJobs.delete(job.tabId);
+    void notifyDeliveryError(error);
   }
 }
 
 async function startLauncherJob(message, sender, sendResponse) {
   const tab = launcherTab(sender);
-  if (launcherTasks.has(tab.id)) throw new Error('This tab already has a delivery in progress.');
   const multiple = message.multiple === true;
   const ids = [...new Set(Array.isArray(message.siteIds) ? message.siteIds : [])];
   const attachments = RelayAttachments.validatePayload(message.attachments);
@@ -300,14 +304,16 @@ async function startLauncherJob(message, sender, sendResponse) {
     createdAt: Date.now(), prompt: message.prompt, siteIds: ids, multiple, state: 'pending',
     files: attachments.map(RelayAttachments.metadata),
   };
-  launcherTasks.set(tab.id, job.id);
-  try {
+  await runSerially(launcherRecordQueue, tab.id, async () => {
+    if (activeLauncherJobs.has(tab.id)) throw new Error('This tab already has a delivery in progress.');
     // Save text and file metadata before navigation; bytes stay in memory only.
-    await chrome.storage.session.set({ [launcherKey(tab.id)]: job });
-  } catch (error) {
-    launcherTasks.delete(tab.id);
-    throw new Error(`Could not keep a recovery draft. Nothing was sent. ${errorMessage(error)}`);
-  }
+    try {
+      await chrome.storage.session.set({ [launcherKey(tab.id)]: job });
+    } catch (error) {
+      throw new Error(`Could not keep a recovery draft. Nothing was sent. ${errorMessage(error)}`);
+    }
+    activeLauncherJobs.set(tab.id, job.id);
+  });
   sendResponse({ accepted: true, jobId: job.id });
   void runLauncherJob(job, attachments);
 }
@@ -320,13 +326,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return;
     }
     const tab = launcherTab(sender);
-    const job = await readLauncherJob(tab.id);
-    if (message.action === 'clear-launcher-job') {
-      if (job && job.id === message.jobId && job.state !== 'pending' && !launcherTasks.has(tab.id)) {
+    const response = await runSerially(launcherRecordQueue, tab.id, async () => {
+      const job = await readLauncherJob(tab.id);
+      if (message.action === 'launcher-job') return { ok: true, job };
+      if (job && job.id === message.jobId && !activeLauncherJobs.has(tab.id)) {
         await chrome.storage.session.remove(launcherKey(tab.id));
       }
-      sendResponse({ ok: true });
-    } else sendResponse({ ok: true, job });
+      return { ok: true };
+    });
+    sendResponse(response);
   })().catch((error) => sendResponse({ accepted: false, error: errorMessage(error) }));
   return true;
 });
@@ -337,7 +345,8 @@ chrome.action.onClicked.addListener((tab) => {
 });
 
 chrome.tabs.onRemoved?.addListener((tabId) => {
-  void chrome.storage.session.remove(launcherKey(tabId)).catch(console.error);
+  runSerially(launcherRecordQueue, tabId, () => chrome.storage.session.remove(launcherKey(tabId)))
+    .catch(console.error);
 });
 
 chrome.commands.onCommand.addListener(async (command) => {

@@ -469,11 +469,13 @@
 
   async function submitGoogleAiMode(prompt, attachments) {
     const site = RelaySites.google;
+    const url = window.location.href;
     if (!prompt.trim() || !attachments.length) throw new Error('Google AI Mode needs a question with the files.');
 
     const editor = await waitForPromptEditor(site, 6000).catch(() => {
       throw new Error('Google AI Mode input is unavailable. Check that AI Mode is enabled for your account.');
     });
+    if (window.location.href !== url) throw new Error('The destination page changed before uploading.');
     const files = attachments.map(RelayAttachments.decode);
     const previewCount = () => {
       const labels = files.filter(({ name }) => document.body.innerText.includes(name)).length;
@@ -503,14 +505,15 @@
       throw new Error('Google AI Mode did not show all files. Add them directly in Google AI Mode.');
     }
     const liveEditor = await waitForPromptEditor(site, 6000);
+    if (window.location.href !== url) throw new Error('The destination page changed before sending.');
     await fillPrompt(liveEditor, prompt);
     const send = await waitForSendButton(site, 10000);
     if (!send) throw new Error('Google AI Mode did not expose an enabled Send button.');
-    if (!liveEditor.isConnected || readEditorText(liveEditor).trim() !== prompt.trim() ||
+    if (window.location.href !== url || !liveEditor.isConnected ||
+        readEditorText(liveEditor).trim() !== prompt.trim() ||
         previewCount() - initialPreviews < files.length) {
       throw new Error('The Google AI Mode draft changed before sending.');
     }
-    const url = window.location.href;
     const initialMessages = userMessageCount();
     send.click();
     const submissionDeadline = Date.now() + 6000;

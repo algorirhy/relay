@@ -6,7 +6,7 @@ const vm = require('node:vm');
 
 const read = (file) => fs.readFileSync(path.resolve(__dirname, '..', file), 'utf8');
 
-function createHarness({ richText = true, confirm = true, replace = false, acceptsText = true, alteredDraft = '' } = {}) {
+function createHarness({ richText = true, confirm = true, replace = false, acceptsText = true, alteredDraft = '', disappear = false } = {}) {
   let clock = 1;
   let insertions = 0;
   let clicks = 0;
@@ -49,6 +49,11 @@ function createHarness({ richText = true, confirm = true, replace = false, accep
   button.id = 'flow-end-msg-send';
   button.click = () => {
     clicks += 1;
+    if (disappear) {
+      editor.isConnected = false;
+      editor = null;
+      return;
+    }
     if (replace) {
       const replacement = richText ? new RichEditor() : new TextArea();
       if (richText) replacement.innerText = editor.innerText;
@@ -94,6 +99,7 @@ function createHarness({ richText = true, confirm = true, replace = false, accep
     querySelector(selector) { return selector === '#flow-end-msg-send' ? button : null; },
     querySelectorAll(selector) {
       if (selector === '#flow-end-msg-send') return [button];
+      if (!editor) return [];
       if (richText && selector === '#input-engine-container [contenteditable="true"]') return [editor];
       if (richText && selector === 'div[contenteditable="true"]') return [editor];
       if (!richText && selector === 'textarea') return [editor];
@@ -191,4 +197,12 @@ test('Doubao main world reports a rejected rich-text editing operation', async (
   assert.equal(response.ok, false);
   assert.match(response.error, /did not accept/);
   assert.equal(harness.clicks(), 0);
+});
+
+test('Doubao does not confirm a send merely because the editor disappears', async () => {
+  const harness = createHarness({ disappear: true });
+  const response = await harness.submit('Keep the recovery draft');
+  assert.equal(response.ok, false);
+  assert.match(response.error, /did not confirm/);
+  assert.equal(harness.clicks(), 1);
 });

@@ -20,10 +20,10 @@
   // Failed single-tab jobs restore file metadata without keeping file bytes.
   let attachments = [];
   let selected = services[0];
-  let busy = false;
+  // The launcher phase controls input. Draft mode and IME composition are independent.
+  let phase = 'restoring';
   let composing = false;
   let multiple = false;
-  let initializing = true;
   let currentJobId = null;
   const selectedServiceIds = new Set(services.map((site) => site.id));
 
@@ -60,7 +60,7 @@
   }
 
   function addFiles(files) {
-    if (busy || initializing || !files?.length) return;
+    if (phase !== 'editing' || !files?.length) return;
     const next = [...attachments];
     for (const file of files) {
       const metadata = RelayAttachments.metadata(file);
@@ -91,18 +91,26 @@
     });
   }
 
-  function updateControls() {
+  function draftState() {
     const hasText = Boolean(input.value.trim());
     const hasFiles = attachments.length > 0;
     const missingFiles = attachments.some((entry) => !entry.file);
     const hasContent = hasText || hasFiles;
-    const locked = busy || initializing;
     const googleSelected = destinations().includes('google');
     const needsGoogleQuestion = googleSelected && hasFiles && !hasText;
+    const canSubmit = !missingFiles && !needsGoogleQuestion && (!multiple || (hasContent && selectedServiceIds.size > 0));
+    return { hasText, hasFiles, missingFiles, hasContent, googleSelected, needsGoogleQuestion, canSubmit };
+  }
+
+  function updateControls() {
+    const { hasText, hasFiles, missingFiles, hasContent, googleSelected, needsGoogleQuestion, canSubmit } = draftState();
+    const locked = phase !== 'editing';
     const action = multiple
       ? `Send to ${selectedServiceIds.size} service${selectedServiceIds.size === 1 ? '' : 's'}`
       : !hasContent ? 'Open' : googleSelected && !hasFiles ? 'Search' : 'Send';
-    submitLabel.textContent = busy ? 'Sending…' : action;
+    if (phase === 'submitting' || phase === 'waiting') submitLabel.textContent = 'Sending…';
+    else if (phase === 'navigating') submitLabel.textContent = 'Opening…';
+    else submitLabel.textContent = action;
     submitButton.setAttribute('aria-label', multiple ? action : `${action} ${googleSelected && hasFiles ? 'Google AI Mode' : selected.name}`);
     if (missingFiles) {
       hint.textContent = 'Add the listed files again or remove them before submitting.';
@@ -132,7 +140,7 @@
       else if (hasText) hint.textContent = 'Opens a fresh chat in this tab and sends your message.';
       else hint.textContent = 'Type to start a chat, or open the site.';
     }
-    submitButton.disabled = locked || missingFiles || needsGoogleQuestion || (multiple && (!hasContent || !selectedServiceIds.size));
+    submitButton.disabled = locked || !canSubmit;
     input.disabled = locked;
     modeSwitch.disabled = locked;
     modeSwitch.checked = multiple;
@@ -163,7 +171,7 @@
   }
 
   function selectService(id, shouldFocus = true) {
-    if (busy || initializing) return;
+    if (phase !== 'editing') return;
     const service = services.find((candidate) => candidate.id === id);
     if (!service) return;
     if (multiple) {
@@ -178,7 +186,7 @@
   }
 
   function fail(message) {
-    busy = false;
+    phase = 'editing';
     status.textContent = message;
     status.dataset.state = 'error';
     copyButton.hidden = !input.value.trim();
@@ -197,8 +205,8 @@
         for (const id of job.siteIds) selectedServiceIds.add(id);
       } else selected = services.find((service) => service.id === job.siteIds[0]) || selected;
     }
-    busy = job.state === 'pending';
-    if (busy) {
+    phase = job.state === 'pending' ? 'waiting' : 'editing';
+    if (phase === 'waiting') {
       status.textContent = 'Opening fresh chats and sending…';
       status.dataset.state = 'pending';
     } else if (job.state === 'interrupted') {
@@ -222,30 +230,41 @@
       }
     }
     updateControls();
-    if (busy) window.setTimeout(() => { void pollJob(); }, 800);
+    if (phase === 'waiting') window.setTimeout(() => { void pollJob(job.id); }, 800);
   }
 
-  async function pollJob() {
+  async function pollJob(jobId, failedReads = 0) {
+    const isCurrent = () => phase === 'waiting' && currentJobId === jobId;
+    if (!isCurrent()) return;
     try {
       const response = await chrome.runtime.sendMessage({ action: 'launcher-job' });
-      if (!response?.ok) throw new Error(response?.error || 'Could not read the delivery status.');
-      if (response.job) showJob(response.job);
-      else fail('Delivery status is unavailable. Check the service before retrying.');
-    } catch (error) {
-      fail(error.message || String(error));
+      if (!isCurrent()) return;
+      if (!response?.ok || response.job?.id !== jobId) throw new Error('Delivery status is unavailable.');
+      showJob(response.job);
+    } catch {
+      if (!isCurrent()) return;
+      // Retry status reads, never the accepted delivery itself.
+      if (failedReads < 2) {
+        status.textContent = 'Checking delivery status…';
+        window.setTimeout(() => { void pollJob(jobId, failedReads + 1); }, 800);
+      } else {
+        fail('Delivery status is unavailable. Check the service before retrying.');
+      }
     }
   }
 
   async function submit() {
-    if (busy || initializing || composing || submitButton.disabled) return;
+    if (phase !== 'editing' || composing || !draftState().canSubmit) return;
     const text = input.value;
     const hasFiles = attachments.length > 0;
+    const directLaunch = !hasFiles && !multiple && (!text.trim() || selected.id === 'google');
     hideCopyButton();
-    busy = true;
+    phase = directLaunch ? 'navigating' : 'submitting';
     status.textContent = '';
+    status.dataset.state = 'pending';
     updateControls();
     try {
-      if (!hasFiles && !multiple && (!text.trim() || selected.id === 'google')) {
+      if (directLaunch) {
         window.location.assign(RelaySites.getLaunchUrl(selected.id, text));
         discardRecovery();
         return;
@@ -258,8 +277,9 @@
       });
       if (!response?.accepted) throw new Error(response?.error || 'The delivery task was not accepted. Nothing was sent.');
       currentJobId = response.jobId;
+      phase = 'waiting';
       status.textContent = 'Opening fresh chats and sending…';
-      void pollJob();
+      void pollJob(currentJobId);
     } catch (error) {
       fail(error.message || String(error));
     }
@@ -306,8 +326,8 @@
   composer.addEventListener('dragover', (event) => {
     if (!event.dataTransfer.types.includes('Files')) return;
     event.preventDefault();
-    event.dataTransfer.dropEffect = busy || initializing ? 'none' : 'copy';
-    if (!busy && !initializing) composer.classList.add('dragover');
+    event.dataTransfer.dropEffect = phase === 'editing' ? 'copy' : 'none';
+    if (phase === 'editing') composer.classList.add('dragover');
   });
   composer.addEventListener('dragleave', (event) => {
     if (!composer.contains(event.relatedTarget)) composer.classList.remove('dragover');
@@ -332,7 +352,7 @@
     form.requestSubmit();
   });
   document.addEventListener('keydown', (event) => {
-    if (busy || initializing || event.defaultPrevented || event.metaKey || event.ctrlKey || event.isComposing || composing || event.keyCode === 229) return;
+    if (phase !== 'editing' || event.defaultPrevented || event.metaKey || event.ctrlKey || event.isComposing || composing || event.keyCode === 229) return;
     // On macOS Option changes event.key (e.g. Option+1 becomes ¡). Physical
     // Digit codes keep the shortcut consistent and prevent symbol insertion.
     if (event.altKey && !event.shiftKey && /^Digit[1-7]$/.test(event.code)) {
@@ -348,7 +368,7 @@
   });
 
   modeSwitch.addEventListener('change', () => {
-    if (busy || initializing) return;
+    if (phase !== 'editing') return;
     multiple = modeSwitch.checked;
     editDraft();
   });
@@ -371,14 +391,15 @@
     try {
       const response = await chrome.runtime.sendMessage({ action: 'launcher-job' });
       if (!response?.ok) throw new Error(response?.error || 'Reload the extension to enable automatic sending.');
-      initializing = false;
       if (response.job) showJob(response.job, true);
     } catch (error) {
       status.textContent = error.message || String(error);
     } finally {
-      initializing = false;
+      if (phase === 'restoring') phase = 'editing';
       updateControls();
-      if (!busy && document.hasFocus?.() && document.activeElement === document.body) input.focus({preventScroll:true});
+      if (phase === 'editing' && document.hasFocus?.() && document.activeElement === document.body) {
+        input.focus({ preventScroll: true });
+      }
     }
   })();
 })();

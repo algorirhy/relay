@@ -14,7 +14,7 @@ Relay has no developer-operated backend, analytics, advertising, or tracking. It
 | Google search | Terms appear in the destination URL and may enter browser history. |
 | Clipboard | Changed only by an explicit **Copy prompt** fallback; system clipboard history/sync settings then apply. |
 
-Once all selected operations succeed, recovery text and file metadata are removed. Failed or unconfirmed tasks retain the draft. Closing the source tab clears its record; records older than one hour are removed when accessed. Disabling, reloading, or updating the extension, or restarting Chrome, clears session memory. Recovery data is not exposed to content scripts under the default session access policy.
+Once all selected operations succeed, recovery text and file metadata are removed. Failed or unconfirmed tasks retain the draft. Closing the source tab clears its record. On access, a record expires one hour after completion, or one hour after creation if the worker was interrupted. Active jobs retain their draft until completion. Disabling, reloading, or updating the extension, or restarting Chrome, clears session memory. Recovery data is not exposed to content scripts under the default session access policy.
 
 ### Permissions
 
@@ -40,7 +40,7 @@ Relay 没有开发者后端、使用分析、广告或跟踪，不截取 AI 回�
 | Google 搜索 | 搜索词包含在目标 URL 中，可能进入浏览器历史。 |
 | 剪贴板 | 仅主动点击 **Copy prompt** 时覆盖；之后受系统剪贴板历史 / 同步设置影响。 |
 
-所有所选操作均成功后，会移除恢复任务中的文字和文件元数据。失败或未确认发送时会保留草稿。关闭来源标签页会清理记录，超过一小时的记录在再次访问时清理。停用、重载、更新扩展或重启 Chrome 会清空会话内存。会话恢复数据默认不向内容脚本开放。
+所有所选操作均成功后，会移除恢复任务中的文字和文件元数据。失败或未确认发送时会保留草稿。关闭来源标签页会清理记录。再次访问时，已完成的记录从完成起保留一小时，后台中断的记录从创建起保留一小时。仍在运行的任务会保留草稿直到完成。停用、重载、更新扩展或重启 Chrome 会清空会话内存。会话恢复数据默认不向内容脚本开放。
 
 ### 权限
 

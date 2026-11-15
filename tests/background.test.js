@@ -32,6 +32,8 @@ function createHarness(initialTabs, {
   initialSession = {},
   afterSubmit = () => {},
   afterPing = () => {},
+  afterStorageRead = () => {},
+  now = Date.now,
 } = {}) {
   const tabs = initialTabs.map((tab) => ({ status: 'complete', ...tab }));
   const records = {
@@ -47,7 +49,11 @@ function createHarness(initialTabs, {
   const session = JSON.parse(JSON.stringify(initialSession));
   const chrome = {
     storage: { session: {
-      async get(key) { return { [key]: session[key] }; },
+      async get(key) {
+        const snapshot = session[key];
+        await afterStorageRead(key);
+        return { [key]: snapshot };
+      },
       async set(values) { if (storageFails) throw new Error('Session storage unavailable'); Object.assign(session, JSON.parse(JSON.stringify(values))); },
       async remove(key) { delete session[key]; },
     } },
@@ -132,6 +138,7 @@ function createHarness(initialTabs, {
     console: { error() {}, log() {}, warn() {} },
     setTimeout,
     clearTimeout,
+    Date: { now },
   });
   context.globalThis = context;
   context.importScripts = () => {
@@ -402,4 +409,46 @@ test('delivery stops when the loaded tab switches to another conversation on the
   assert.equal(job.prompt, 'Keep this draft');
   assert.equal(h.records.submitted.length, 0);
   assert.equal(h.records.updated.length, 1, 'Relay must leave the other conversation open');
+});
+
+test('an in-flight status read cannot overwrite the completion record', async () => {
+  let finishDelivery;
+  let unblockRead;
+  let readStarted;
+  const reading = new Promise(resolve => { readStarted = resolve; });
+  const pauseRead = new Promise(resolve => { unblockRead = resolve; });
+  const h = createHarness([launcherTab], {
+    submitGate: new Promise(resolve => { finishDelivery = resolve; }),
+    async afterStorageRead() {
+      readStarted();
+      await pauseRead;
+    },
+  });
+  await h.request({ action: 'launch-prompt', prompt: 'Finish once', siteIds: ['chatgpt'] });
+  const read = h.request({ action: 'launcher-job' });
+  await reading;
+  finishDelivery();
+  await new Promise(setImmediate);
+  unblockRead();
+  assert.equal((await read).job.state, 'pending');
+  assert.equal((await h.waitForLauncher()).result.ok, true);
+});
+
+test('a running job keeps its recovery data after the retention period', async () => {
+  let now = Date.now();
+  let finishDelivery;
+  const h = createHarness([launcherTab], {
+    now: () => now,
+    submitGate: new Promise(resolve => { finishDelivery = resolve; }),
+  });
+  await h.request({ action: 'launch-prompt', prompt: 'Still sending', siteIds: ['chatgpt'] });
+  now += 61 * 60 * 1000;
+  try {
+    const response = await h.request({ action: 'launcher-job' });
+    assert.equal(response.job?.state, 'pending');
+    assert.equal(response.job?.prompt, 'Still sending');
+  } finally {
+    finishDelivery();
+  }
+  await h.waitForLauncher();
 });

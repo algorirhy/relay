@@ -303,11 +303,10 @@
     return previewCount >= upload.names.length;
   }
 
-  function doubaoReadyFingerprint(composer, upload) {
-    const root = doubaoComposerRoot(composer.editor);
+  function doubaoReadyFingerprint(composer, root, busy, hasEvidence) {
     return JSON.stringify({
-      busy: doubaoUploadIsBusy(root),
-      evidence: doubaoUploadEvidence(root, upload),
+      busy,
+      hasEvidence,
       fileNodes: root?.querySelectorAll(
         'img, [data-file-name], [data-filename], [class*="attachment" i], [class*="upload" i]',
       ).length || 0,
@@ -332,7 +331,7 @@
         const hasEvidence = doubaoUploadEvidence(root, upload);
         const enoughTimePassed = Date.now() >= minimumReadyAt;
         const canUseTimeFallback = upload && Date.now() >= upload.startedAt + 8000;
-        const fingerprint = doubaoReadyFingerprint(composer, upload);
+        const fingerprint = doubaoReadyFingerprint(composer, root, busy, hasEvidence);
 
         if (fingerprint !== lastFingerprint) {
           lastFingerprint = fingerprint;
@@ -411,8 +410,6 @@
 
   function createDoubaoSubmissionSnapshot(composer) {
     return {
-      editor: composer.editor,
-      sendButton: composer.sendButton,
       initialUrl: location.href,
       initialValue: readDoubaoPrompt(composer.editor).trim(),
       attachmentCount: doubaoAttachmentCount(composer.editor),
@@ -421,9 +418,8 @@
 
   async function waitForDoubaoSubmission(snapshot, timeoutMs) {
     const deadline = Date.now() + timeoutMs;
-    let missingSince = 0;
     while (Date.now() < deadline) {
-      if (location.href !== snapshot.initialUrl) return true;
+      if (location.href !== snapshot.initialUrl) return currentSiteId() === 'doubao';
 
       const liveComposer = findDoubaoComposer();
       const liveEditor = liveComposer?.editor;
@@ -433,19 +429,7 @@
       if (liveEditor && (snapshot.initialValue || snapshot.attachmentCount) &&
           !liveValue && !liveAttachmentCount) return true;
 
-      // A replaced composer is only evidence when its state also changed. Upload
-      // completion itself can replace the nodes without submitting the message.
-      if (!snapshot.editor.isConnected || !snapshot.sendButton?.isConnected) {
-        if (!liveEditor) {
-          if (!missingSince) missingSince = Date.now();
-          if (Date.now() - missingSince >= 500) return true;
-        } else {
-          missingSince = 0;
-        }
-      } else {
-        missingSince = 0;
-      }
-
+      // A missing composer can be a rerender. Wait for a live, cleared draft.
       await delay(100);
     }
     return false;
