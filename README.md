@@ -2,7 +2,7 @@
   <img src="./icons/relay-256.png" width="72" height="72" alt="Relay logo" />
 </p>
 
-<h1 align="center">Relay · Chrome New Tab for Google Search and AI Chat</h1>
+<h1 align="center">Relay · Chrome New Tab for AI Search and Chat</h1>
 <p align="center">Start with a thought.</p>
 <p align="center">
   <a href="./README.zh-CN.md">简体中文</a> ·

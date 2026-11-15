@@ -2,7 +2,7 @@
   <img src="./icons/relay-256.png" width="72" height="72" alt="Relay 标志" />
 </p>
 
-<h1 align="center">Relay · 在 Chrome 新标签页搜索 Google、向多个 AI 提问</h1>
+<h1 align="center">Relay · Chrome 新标签页的 AI 搜索与对话</h1>
 <p align="center">从一个想法开始。</p>
 <p align="center">
   <a href="./README.md">English</a> ·
