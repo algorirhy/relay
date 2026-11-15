@@ -469,7 +469,6 @@
 
   async function submitGoogleAiMode(prompt, attachments) {
     const site = RelaySites.google;
-    if (!RelaySites.isGoogleAiPage(window.location.href)) throw new Error('Google AI Mode is unavailable on this page.');
     if (!prompt.trim() || !attachments.length) throw new Error('Google AI Mode needs a question with the files.');
 
     const editor = await waitForPromptEditor(site, 6000).catch(() => {
@@ -507,6 +506,10 @@
     await fillPrompt(liveEditor, prompt);
     const send = await waitForSendButton(site, 10000);
     if (!send) throw new Error('Google AI Mode did not expose an enabled Send button.');
+    if (!liveEditor.isConnected || readEditorText(liveEditor).trim() !== prompt.trim() ||
+        previewCount() - initialPreviews < files.length) {
+      throw new Error('The Google AI Mode draft changed before sending.');
+    }
     const url = window.location.href;
     const initialMessages = userMessageCount();
     send.click();
@@ -523,46 +526,41 @@
     throw new Error('Google AI Mode did not confirm that the files and question were submitted.');
   }
 
-  function createSubmissionSnapshot(editor, sendButton) {
-    return {
-      url: window.location.href,
-      editor,
-      sendButton,
-      editorText: readEditorText(editor),
-      userMessageCount: userMessageCount(),
-    };
+  function hasSubmissionEvidence(site, snapshot) {
+    const url = window.location.href;
+    if (url !== snapshot.url) return currentSite()?.id === site.id;
+    if (userMessageCount() > snapshot.userMessageCount) return true;
+
+    // Replacing the composer or disabling Send can happen during a rerender.
+    return Boolean(snapshot.text && snapshot.editor.isConnected && !readEditorText(snapshot.editor).trim());
   }
 
-  async function waitForSubmissionEvidence(snapshot, timeoutMs = 6000) {
+  async function waitForSubmissionEvidence(site, snapshot, timeoutMs) {
     const deadline = Date.now() + timeoutMs;
-    let disabledSince = 0;
-
     while (Date.now() < deadline) {
-      if (window.location.href !== snapshot.url) return true;
-      if (!snapshot.editor.isConnected) return true;
-      if (snapshot.sendButton && !snapshot.sendButton.isConnected) return true;
-      if (userMessageCount() > snapshot.userMessageCount) return true;
-
-      const currentText = readEditorText(snapshot.editor).trim();
-      if (snapshot.editorText.trim() && currentText !== snapshot.editorText.trim()) return true;
-
-      if (snapshot.sendButton && !isEnabled(snapshot.sendButton)) {
-        if (!disabledSince) disabledSince = Date.now();
-        if (Date.now() - disabledSince >= 200) return true;
-      } else {
-        disabledSince = 0;
-      }
+      if (hasSubmissionEvidence(site, snapshot)) return true;
       await delay(100);
     }
-
     return false;
   }
 
-  async function performSubmissionAttempt(site, editor, attachmentCount, timeoutMs) {
-    const sendButton = await waitForSendButton(site, timeoutMs);
-    const snapshot = createSubmissionSnapshot(editor, sendButton);
-    let method;
+  async function performSubmissionAttempt(site, draft, hasAttachments) {
+    const sendButton = await waitForSendButton(site, hasAttachments ? 60000 : 6000);
 
+    // Before a repeat attempt, check whether the first one finished meanwhile.
+    if (draft.previousAttempt && hasSubmissionEvidence(site, draft.previousAttempt)) {
+      return { confirmed: true, method: draft.previousAttempt.method };
+    }
+    const editor = findVisibleElement(site.inputSelectors, isPromptEditor);
+    if (window.location.href !== draft.url || !editor || readEditorText(editor).trim() !== draft.text) {
+      throw new Error('The draft changed before sending.');
+    }
+    if (hasAttachments && !sendButton) {
+      throw new Error(`${site.name} did not enable Send for the attachments.`);
+    }
+
+    const snapshot = { url: draft.url, editor, text: draft.text, userMessageCount: userMessageCount() };
+    let method;
     if (sendButton) {
       sendButton.click();
       method = 'button';
@@ -578,50 +576,37 @@
     }
 
     return {
-      confirmed: await waitForSubmissionEvidence(snapshot, attachmentCount ? 8000 : 6000),
+      confirmed: await waitForSubmissionEvidence(site, snapshot, hasAttachments ? 8000 : 6000),
+      snapshot: { ...snapshot, method },
       method,
     };
   }
 
-  async function sendPrompt(site, editor, prompt, attachmentCount) {
+  async function sendPrompt(site, draft, attachmentCount) {
     if (site.id === 'doubao') {
       const sendButton = await waitForSendButton(site, attachmentCount ? 60000 : 6000);
       if (!sendButton) throw new Error('Doubao did not expose an enabled send control.');
 
-      const result = await requestPageMainWorld('doubao', 'page-submit', [], 70000, prompt);
+      if (window.location.href !== draft.url) throw new Error('The destination page changed before sending.');
+      const result = await requestPageMainWorld('doubao', 'page-submit', [], 70000, draft.prompt);
       if (!result.submitted) throw new Error('Doubao did not confirm that the message was submitted.');
       return result.method;
     }
 
-    let liveEditor = editor;
-    let lastAttemptError = null;
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      if (attempt > 0) {
-        await delay(300);
-        liveEditor = await waitForPromptEditor(site, 6000);
-        if (prompt.trim() && readEditorText(liveEditor).trim() !== prompt.trim()) {
-          await fillPrompt(liveEditor, prompt);
-        }
-      }
-
-      try {
-        const result = await performSubmissionAttempt(
-          site,
-          liveEditor,
-          attachmentCount,
-          attempt === 0 ? (attachmentCount ? 60000 : 6000) : 6000,
-        );
-        if (result.confirmed) return result.method;
-      } catch (error) {
-        lastAttemptError = error;
-      }
+    const first = await performSubmissionAttempt(site, draft, attachmentCount > 0);
+    if (first.confirmed) return first.method;
+    if (!attachmentCount) {
+      const second = await performSubmissionAttempt(site, { ...draft, previousAttempt: first.snapshot }, false);
+      if (second.confirmed) return second.method;
     }
 
-    if (lastAttemptError) throw lastAttemptError;
     throw new Error(`${site.name} did not confirm that the message was submitted.`);
   }
 
-  async function submitPrompt(prompt, serializedAttachments = []) {
+  async function submitPrompt({ prompt, attachments: serializedAttachments = [], expectedUrl }) {
+    if (expectedUrl && window.location.href !== expectedUrl) {
+      throw new Error('The destination page changed before sending.');
+    }
     const normalizedPrompt = typeof prompt === 'string' ? prompt : '';
     const attachments = Array.isArray(serializedAttachments) ? serializedAttachments : [];
     if (RelaySites.isGoogleAiPage(window.location.href)) return submitGoogleAiMode(normalizedPrompt, attachments);
@@ -631,6 +616,7 @@
       throw new Error('The message and attachment list are empty.');
     }
 
+    const draft = { url: window.location.href, prompt: normalizedPrompt, text: normalizedPrompt.trim() };
     let editor = await waitForPromptEditor(site);
     const attachmentCount = await attachFiles(site, attachments, editor);
     if (attachmentCount) {
@@ -642,7 +628,7 @@
       await fillPrompt(editor, normalizedPrompt);
     }
     await delay(150);
-    const method = await sendPrompt(site, editor, normalizedPrompt, attachmentCount);
+    const method = await sendPrompt(site, draft, attachmentCount);
     console.log(`${LOG_PREFIX} Submitted a message for ${site.name} using ${method}.`);
     return { ok: true, siteId: site.id, method, attachmentCount };
   }
@@ -661,7 +647,7 @@
     }
 
     if (message?.action === 'submit-prompt') {
-      submitPrompt(message.prompt, message.attachments)
+      submitPrompt(message)
         .then(sendResponse)
         .catch((error) => sendResponse({
           ok: false,

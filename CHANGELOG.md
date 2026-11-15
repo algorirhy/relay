@@ -4,8 +4,8 @@
 
 - Relay replaces the legacy popup with a Chrome new-tab launcher for Google and six AI chat services. Choose one service or send to several at once.
 - Attach files with the picker, drag and drop, or paste an image. Google opens ordinary search when there are no files and uses AI Mode for questions with files.
-- Review delivery results per service. Failed or interrupted jobs preserve the prompt and file names for recovery. Reopened drafts require reselecting the files.
-- Add a system theme, keyboard shortcuts for destination selection, and updated setup, privacy, and development guides.
+- Review delivery results per service. Confirm sends using page signals and avoid repeating requests with files. Failed or interrupted jobs preserve the prompt and file names so you can reopen the draft and reselect the files.
+- Add a system theme and keyboard shortcuts for destination selection. Update the setup, privacy, and development guides and add a screenshot of the default launcher.
 
 ## 1.x
 

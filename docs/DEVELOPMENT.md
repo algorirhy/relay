@@ -17,16 +17,18 @@ Relay is a Chrome Manifest V3 extension written in plain JavaScript, HTML, and C
 
 An empty single-service draft opens the service directly. A text-only Google search in single mode also navigates directly. Delivery tasks go through the worker, which validates the requester and files, records the draft, then acknowledges. Attachments travel through Chrome's JSON messaging and stay in memory. Draft recovery stores the text and file metadata. See [Privacy](../PRIVACY.md).
 
-Single mode navigates the source tab; multiple mode runs destinations independently under per-service locks. Multiple-mode Google always gets a new background tab. The worker waits for destination load and an adapter handshake before sending. It never replays a job on restart. For single-mode failure, it restores the launcher only while the tab still shows the page Relay opened and has no pending navigation.
+Single mode uses the source tab. Multiple mode runs destinations independently under per-service locks and opens Google in a new background tab. The worker waits for the destination to load, checks that it stayed on the expected page, and then asks its content script to send. A restarted worker marks pending jobs as interrupted. After a single-mode failure, the worker restores the launcher while the tab still shows the page Relay opened and has no pending navigation.
 
 Chrome can report `chrome://newtab/` in `tabs.get` even though the sender is the extension document. Accept that alias only for source-tab state; keep sender validation strict.
 
 ## Adapter maintenance
 
+The attachment limit uses 1,048,576 bytes per displayed MB for compatibility with existing drafts.
+
 - Prefer updating exact hosts, new-chat URLs and ordered selectors in `sites.js`. Keep manifest matches aligned. Gemini preserves the account path when reusing a tab.
-- File inputs may appear only after opening upload controls. Grok can replace its editor after upload; DeepSeek can take longer to enable Send.
+- File inputs can appear after opening upload controls. Reacquire the composer after uploading files. A retry is limited to unchanged text-only drafts, since a second click could send duplicate content or omit attachments. A detached editor or disabled Send button can be a rerender and does not confirm delivery.
 - The Gemini/Doubao bridge handles uploads in the page's world without access to Chrome APIs. Doubao supports ProseMirror and older textareas, requires stable live controls, and clicks Send once. A replaced composer with unsent text does not by itself confirm delivery.
-- Google AI Mode must show page-side evidence of each attachment before submission. Its adapter uses a file input or the composer paste path, then checks for evidence after one click. Changes to Google's UI and account rollout can make the adapter unavailable; do not fall back to text-only submission when files were selected.
+- Google AI Mode checks for attachment previews before submitting and looks for signs of delivery after one click. Changes to Google's UI and account rollout can make the adapter unavailable; do not fall back to text-only submission when files were selected.
 
 ## Validation and release
 

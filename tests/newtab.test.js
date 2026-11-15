@@ -345,7 +345,7 @@ test('invalid file selections and read errors leave the draft editable without l
   const h = await createHarness({ saved: 'chatgpt' });
   h.type('Keep the draft');
   pickFiles(h, [{ ...sampleFile, size: 11 * 1024 * 1024 }]);
-  assert.match(h.elements.status.textContent, /10 MiB/);
+  assert.match(h.elements.status.textContent, /10 MB/);
   assert.equal(h.elements['attachment-list'].children.length, 0);
   pickFiles(h, [{ ...sampleFile, readError: true }]);
   h.elements['launcher-form'].emit('submit');
@@ -354,4 +354,16 @@ test('invalid file selections and read errors leave the draft editable without l
   assert.equal(h.elements.prompt.value, 'Keep the draft');
   assert.equal(h.elements.prompt.disabled, false);
   assert.equal(h.records.messages.some((message) => message.action === 'launch-prompt'), false);
+});
+
+test('retrying a restored draft keeps its recovery record if the worker refuses the send', async () => {
+  const h = await createHarness({
+    rejectLaunch: true,
+    initialJob: { id: 'previous', state: 'interrupted', siteIds: ['chatgpt'], multiple: false, prompt: 'Keep me' },
+  });
+  h.elements['launcher-form'].emit('submit');
+  await h.settle();
+  assert.equal(h.elements.prompt.value, 'Keep me');
+  assert.match(h.elements.status.textContent, /Nothing was sent/);
+  assert.equal(h.records.messages.some((message) => message.action === 'clear-launcher-job'), false);
 });

@@ -13,6 +13,8 @@
 
 Relay turns Chrome's new tab into a launcher for Google search, ChatGPT, Claude, Gemini, Grok, DeepSeek, and Doubao. Its English interface follows your system theme. Load it directly from the repository.
 
+![Relay’s default Chrome new tab with Google selected](./docs/relay-new-tab.png)
+
 ## Install
 
 1. Open `chrome://extensions` and enable **Developer mode**.
@@ -29,7 +31,7 @@ Turn on **Multiple services** to use any combination of the seven destinations. 
 
 ### Attachments
 
-Click **Attach**, drop files onto the composer, or paste an image from the clipboard. Relay allows up to **5 files**, **10 MiB per file** and **20 MiB total**. Supported formats and availability depend on the selected provider. The six chat services also accept file-only drafts when their site supports it.
+Click **Attach**, drop files onto the composer, or paste an image from the clipboard. Relay allows up to **5 files**, **10 MB per file** and **20 MB total**. Supported formats and availability depend on the selected provider. The six chat services also accept file-only drafts when their site supports it.
 
 With files attached, Google uses [Google AI Mode](https://support.google.com/websearch/answer/16011537?co=GENIE.Platform%3DDesktop&hl=en) and requires a question. Without files, Google still uses ordinary web search. Sign in to the selected services before sending.
 
@@ -47,7 +49,7 @@ Page shortcuts work after focus enters the page. Chrome may initially keep focus
 
 ## Delivery and recovery
 
-Each destination runs independently. **Opened Google search** means a tab opened; **Sent to …** means the site showed evidence of submission. If Relay cannot confirm a send, check the destination before retrying. Most chat adapters retry once; Doubao and Google AI Mode click Send at most once.
+Each destination runs independently. **Opened Google search** indicates that a tab opened. **Sent to …** indicates that Relay observed signs of submission on the page. Most chat adapters can retry a text-only send once if the draft is unchanged. Doubao and requests with files are submitted at most once. Check the destination before retrying an unconfirmed send.
 
 A failed or interrupted task keeps a temporary draft. If a single delivery fails and the tab is still on the page Relay opened, it returns to the launcher. Restored drafts show files marked **(add again)**; reselect or remove them before retrying. A multiple-service draft that stays open keeps its selected files. **Copy prompt** copies only the text.
 

@@ -150,10 +150,14 @@
   }
 
   function discardRecovery() {
-    if (currentJobId && !busy) {
+    if (currentJobId) {
       void chrome.runtime.sendMessage({ action: 'clear-launcher-job', jobId: currentJobId }).catch(() => {});
       currentJobId = null;
     }
+    hideCopyButton();
+  }
+
+  function hideCopyButton() {
     copyButton.hidden = true;
     copyButton.textContent = 'Copy prompt';
   }
@@ -162,7 +166,6 @@
     if (busy || initializing) return;
     const service = services.find((candidate) => candidate.id === id);
     if (!service) return;
-    discardRecovery();
     if (multiple) {
       if (selectedServiceIds.has(id)) selectedServiceIds.delete(id);
       else selectedServiceIds.add(id);
@@ -170,8 +173,7 @@
       selected = service;
       try { localStorage.setItem('launcher:selected', id); } catch { /* Preference storage is optional. */ }
     }
-    status.textContent = '';
-    updateControls();
+    editDraft();
     if (shouldFocus) input.focus();
   }
 
@@ -238,13 +240,14 @@
     if (busy || initializing || composing || submitButton.disabled) return;
     const text = input.value;
     const hasFiles = attachments.length > 0;
-    discardRecovery();
+    hideCopyButton();
     busy = true;
     status.textContent = '';
     updateControls();
     try {
       if (!hasFiles && !multiple && (!text.trim() || selected.id === 'google')) {
         window.location.assign(RelaySites.getLaunchUrl(selected.id, text));
+        discardRecovery();
         return;
       }
       if (hasFiles) status.textContent = 'Reading files…';
@@ -346,10 +349,8 @@
 
   modeSwitch.addEventListener('change', () => {
     if (busy || initializing) return;
-    discardRecovery();
     multiple = modeSwitch.checked;
-    status.textContent = '';
-    updateControls();
+    editDraft();
   });
   copyButton.addEventListener('click', async () => {
     try {

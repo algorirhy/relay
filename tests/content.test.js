@@ -10,7 +10,7 @@ const contentSource = fs.readFileSync(
 );
 const attachmentSource = fs.readFileSync(path.resolve(__dirname, '..', 'attachments.js'), 'utf8');
 
-function createHarness({ confirmOnClick = 2, acceptedFileTypes = [] } = {}) {
+function createHarness({ confirmOnClick = 2, acceptedFileTypes = [], editedOnClick } = {}) {
   let clock = 0;
   let clickCount = 0;
   let runtimeMessageListener;
@@ -58,12 +58,18 @@ function createHarness({ confirmOnClick = 2, acceptedFileTypes = [] } = {}) {
     }
   }
 
-  const editor = new FakeTextArea();
+  let editor = new FakeTextArea();
   const fileInputs = acceptedFileTypes.map((type) => new FakeInput(type));
   const sendButton = new FakeElement();
   sendButton.click = () => {
     clickCount += 1;
-    if (clickCount >= confirmOnClick) editor.value = '';
+    if (editedOnClick !== undefined) {
+      editor.isConnected = false;
+      editor = new FakeTextArea();
+      editor.value = editedOnClick;
+    } else if (clickCount >= confirmOnClick) {
+      editor.value = '';
+    }
   };
 
   const site = {
@@ -203,4 +209,22 @@ test('mixed formats use their matching upload controls or stop before Send', asy
   assert.equal(response.ok, false);
   assert.match(response.error, /example\.pdf/);
   assert.equal(unsupported.clickCount(), 0);
+});
+
+test('a replaced composer containing a changed draft is neither confirmed nor overwritten', async () => {
+  const harness = createHarness({ editedOnClick: 'An unsent edit' });
+  const result = await harness.submit('My first draft');
+  assert.equal(result.ok, false);
+  assert.match(result.error, /draft changed/);
+  assert.equal(harness.clickCount(), 1);
+});
+
+test('a send with files is not repeated when the page gives no confirmation', async () => {
+  const harness = createHarness({ confirmOnClick: Infinity, acceptedFileTypes: ['.txt'] });
+  const result = await harness.submit('Read this', [{
+    name: 'notes.txt', type: 'text/plain', lastModified: 0, dataUrl: 'data:text/plain;base64,YQ==',
+  }]);
+  assert.equal(result.ok, false);
+  assert.match(result.error, /did not confirm/);
+  assert.equal(harness.clickCount(), 1);
 });

@@ -13,6 +13,8 @@
 
 Relay 把 Google 搜索和 ChatGPT、Claude、Gemini、Grok、DeepSeek、豆包的对话入口集中到 Chrome 新标签页。英文界面跟随系统主题，直接加载仓库即可使用。
 
+![Relay 默认的新标签页，仅选中 Google](./docs/relay-new-tab.png)
+
 ## 安装
 
 1. 打开 `chrome://extensions`，启用**开发者模式**。
@@ -29,7 +31,7 @@ Relay 把 Google 搜索和 ChatGPT、Claude、Gemini、Grok、DeepSeek、豆包�
 
 ### 附件
 
-点击 **Attach**、把文件拖到输入区，或从剪贴板粘贴图片。Relay 最多接收 **5 个文件**，单个不超过 **10 MiB**，合计不超过 **20 MiB**；可用格式由各服务决定。六个聊天服务在网站允许时也可以只发附件。
+点击 **Attach**、把文件拖到输入区，或从剪贴板粘贴图片。Relay 最多接收 **5 个文件**，单个不超过 **10 MB**，合计不超过 **20 MB**；可用格式由各服务决定。六个聊天服务在网站允许时也可以只发附件。
 
 有附件时，Google 走 [Google AI Mode（AI 模式）](https://support.google.com/websearch/answer/16011537?co=GENIE.Platform%3DDesktop&hl=zh-Hans)，需要同时输入问题；没有附件时仍使用普通网页搜索。发送前请先登录所选服务。
 
@@ -47,7 +49,7 @@ Relay 把 Google 搜索和 ChatGPT、Claude、Gemini、Grok、DeepSeek、豆包�
 
 ## 发送结果与恢复
 
-各服务独立处理。**Opened Google search** 表示已打开搜索标签页；**Sent to …** 表示网站出现了提交证据。未确认发送时，重试前请先检查目标页面。多数聊天适配在未确认时会重试一次；豆包和 Google AI Mode 最多点击一次发送。
+各服务独立处理。**Opened Google search** 表示已打开搜索标签页。**Sent to …** 表示 Relay 在目标页面观察到了提交迹象。多数聊天服务的纯文字发送在草稿原样保留时会重试一次。豆包和带附件的请求最多提交一次。结果未确认时，请先检查目标页面再重试。
 
 失败或中断时会保留临时草稿。单服务发送失败且标签页仍停在 Relay 打开的页面时，会返回启动器。恢复后的文件标记为 **(add again)**，重新选择或移除后才能重试。多服务启动器保持打开时，已选文件仍可用。**Copy prompt** 只复制文字。
 

@@ -31,6 +31,7 @@ function createHarness(initialTabs, {
   failCreateFor = [],
   initialSession = {},
   afterSubmit = () => {},
+  afterPing = () => {},
 } = {}) {
   const tabs = initialTabs.map((tab) => ({ status: 'complete', ...tab }));
   const records = {
@@ -103,7 +104,9 @@ function createHarness(initialTabs, {
       async sendMessage(tabId, message) {
         const tab = tabs.find((candidate) => candidate.id === tabId);
         if (message.action === 'ping') {
-          return { ok: true, siteId: siteIdFromUrl(tab.url) };
+          const siteId = siteIdFromUrl(tab.url);
+          afterPing(tab);
+          return { ok: true, siteId };
         }
         if (message.action === 'submit-prompt') {
           if (submitGate) await submitGate;
@@ -386,4 +389,17 @@ test('an invalid attachment or a Google file request without a question never le
   }
   assert.deepEqual(h.session, {});
   assert.deepEqual(h.records.updated, []);
+});
+
+test('delivery stops when the loaded tab switches to another conversation on the same host', async () => {
+  const h = createHarness([launcherTab], {
+    afterPing(tab) { tab.url = 'https://chatgpt.com/c/another-conversation'; },
+  });
+  await h.request({ action: 'launch-prompt', prompt: 'Keep this draft', siteIds: ['chatgpt'] });
+  const job = await h.waitForLauncher();
+  assert.equal(job.result.ok, false);
+  assert.match(job.result.results[0].error, /page changed/);
+  assert.equal(job.prompt, 'Keep this draft');
+  assert.equal(h.records.submitted.length, 0);
+  assert.equal(h.records.updated.length, 1, 'Relay must leave the other conversation open');
 });

@@ -58,7 +58,7 @@ async function waitForTabComplete(tabId, timeoutMs = 30000) {
 
   while (Date.now() < deadline) {
     const tab = await chrome.tabs.get(tabId);
-    if (tab.status === 'complete') return tab;
+    if (tab.status === 'complete' && !tab.pendingUrl) return tab;
     await delay(250);
   }
 
@@ -184,7 +184,7 @@ function deliverToChatService(site, job, attachments, navigation) {
       }
       await waitForContentScript(tabId, site.id);
       const loaded = await chrome.tabs.get(tabId);
-      if (loaded.pendingUrl && loaded.pendingUrl !== loaded.url) {
+      if (loaded.pendingUrl || loaded.url !== initialPage.url) {
         throw new Error('The destination page changed before sending.');
       }
       if (!(site.id === 'google' ? RelaySites.isGoogleAiPage(loaded.url) : RelaySites.findSiteByUrl(loaded.url)?.id === site.id)) {
@@ -192,6 +192,7 @@ function deliverToChatService(site, job, attachments, navigation) {
       }
       const response = await chrome.tabs.sendMessage(tabId, {
         action: 'submit-prompt',
+        expectedUrl: loaded.url,
         prompt: job.prompt,
         attachments,
       });

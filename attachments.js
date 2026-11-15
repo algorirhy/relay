@@ -2,9 +2,9 @@
 (() => {
   'use strict';
 
-  const MiB = 1024 * 1024;
-  const limits = Object.freeze({ count: 5, file: 10 * MiB, total: 20 * MiB });
-  const limitLabel = `${limits.count} files · ${limits.file / MiB} MiB each · ${limits.total / MiB} MiB total`;
+  const bytesPerMiB = 1024 * 1024;
+  const limits = Object.freeze({ count: 5, file: 10 * bytesPerMiB, total: 20 * bytesPerMiB });
+  const limitLabel = `${limits.count} files · ${limits.file / bytesPerMiB} MB each · ${limits.total / bytesPerMiB} MB total`;
   const dataUrlPattern = /^data:([^,]*);base64,([A-Za-z0-9+/]*={0,2})$/;
 
   function validateSizes(files) {
@@ -12,11 +12,11 @@
     let total = 0;
     for (const { name, size } of files) {
       if (!Number.isInteger(size) || size < 0 || size > limits.file) {
-        throw new Error(`${name} exceeds the ${limits.file / MiB} MiB limit per file.`);
+        throw new Error(`${name} exceeds the ${limits.file / bytesPerMiB} MB limit per file.`);
       }
       total += size;
     }
-    if (total > limits.total) throw new Error(`Attachments can total up to ${limits.total / MiB} MiB.`);
+    if (total > limits.total) throw new Error(`Attachments can total up to ${limits.total / bytesPerMiB} MB.`);
   }
 
   function metadata({ name, type, size, lastModified }) {
