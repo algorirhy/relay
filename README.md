@@ -17,7 +17,7 @@ Relay is an open-source Chrome extension that lets you search Google or send the
 
 ## Install
 
-1. [Download Relay 2.0.0](https://github.com/algorirhy/relay/archive/refs/tags/v2.0.0.zip) and unzip it.
+1. [Download Relay (development version)](https://github.com/algorirhy/relay/archive/refs/heads/master.zip) and unzip it.
 2. Open `chrome://extensions` and enable **Developer mode**.
 3. Click **Load unpacked** and select the extracted folder containing `manifest.json`.
 4. Open a new Chrome tab. You can also pin Relay to the toolbar.

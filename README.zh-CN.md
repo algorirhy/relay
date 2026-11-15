@@ -17,7 +17,7 @@ Relay 是一款开源 Chrome 扩展。你可以在新标签页搜索 Google，�
 
 ## 安装
 
-1. [下载 Relay 2.0.0](https://github.com/algorirhy/relay/archive/refs/tags/v2.0.0.zip) 并解压。
+1. [下载 Relay 开发版](https://github.com/algorirhy/relay/archive/refs/heads/master.zip) 并解压。
 2. 打开 `chrome://extensions`，启用**开发者模式**。
 3. 点击**加载已解压的扩展程序**，选择解压后包含 `manifest.json` 的文件夹。
 4. 打开 Chrome 新标签页。也可以把 Relay 固定到工具栏。
