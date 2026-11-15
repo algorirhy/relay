@@ -244,6 +244,23 @@
     if (element instanceof HTMLTextAreaElement || element instanceof HTMLInputElement) {
       return element.value;
     }
+    const paragraphs = [...element.childNodes];
+    if (element.matches('.ProseMirror') && paragraphs.length &&
+        paragraphs.every((node) => node.nodeName === 'P')) {
+      // Plain multiline ProseMirror drafts use paragraphs. Chromium's innerText adds
+      // extra paragraph spacing, so serialize the draft's actual line breaks.
+      const readInline = (node) => {
+        if (node.nodeType === 3) return node.textContent;
+        if (node.nodeName === 'BR') {
+          return node.classList.contains('ProseMirror-trailingBreak') ? '' : '\n';
+        }
+        return [...node.childNodes].map(readInline).join('');
+      };
+      return paragraphs.map((paragraph) => (
+        paragraph.childNodes.length === 1 && paragraph.firstChild.nodeName === 'BR'
+          ? '' : readInline(paragraph)
+      )).join('\n');
+    }
     return element.innerText || element.textContent || '';
   }
 
