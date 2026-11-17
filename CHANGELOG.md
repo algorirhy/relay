@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fix a submission-check crash while waiting for Google AI Mode or text-only chat Send controls to become enabled.
 - Wait for upload progress and stable Send controls, and allow up to two minutes for attachment submission confirmation.
 - Restore failed-task attachments from background memory so a recovered single-service draft can be edited and resent without selecting the files again. Release retained files with the recovery record.
 - Preserve paragraph and hard line breaks when verifying Grok and other ProseMirror drafts, so multiline prompts are not rejected because of rendered paragraph spacing.

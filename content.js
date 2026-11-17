@@ -289,7 +289,7 @@
       if (url) requireDestination(url);
       const button = findVisibleElement(site.sendSelectors, isEnabled);
       if (!waitForUploads && button) return button;
-      const editor = waitForUploads && findVisibleElement(site.inputSelectors, isPromptEditor);
+      const editor = waitForUploads ? findVisibleElement(site.inputSelectors, isPromptEditor) : null;
       const composer = editor && (editor.closest('form') || editor.parentElement);
       const uploadArea = composer?.querySelector('[data-composer-attachments]') || composer;
       const uploading = uploadArea && [...uploadArea.querySelectorAll('[aria-busy="true"], [role="progressbar"]')].some(isVisible);

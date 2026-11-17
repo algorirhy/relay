@@ -10,7 +10,7 @@ const contentSource = fs.readFileSync(
 );
 const attachmentSource = fs.readFileSync(path.resolve(__dirname, '..', 'attachments.js'), 'utf8');
 
-function createHarness({ confirmOnClick = 2, acceptedFileTypes = [], editedOnClick, navigateOnUpload, google = false, leaveAiModeOnSend = false, richText = false, execCommandWorks = true, uploadDuration = 0, confirmationDelay = 0, navigateWhileUploading = false } = {}) {
+function createHarness({ confirmOnClick = 2, acceptedFileTypes = [], editedOnClick, navigateOnUpload, google = false, leaveAiModeOnSend = false, richText = false, execCommandWorks = true, uploadDuration = 0, confirmationDelay = 0, navigateWhileUploading = false, sendReadyAfter = 0 } = {}) {
   let clock = 0;
   let clickCount = 0;
   let runtimeMessageListener;
@@ -120,6 +120,7 @@ function createHarness({ confirmOnClick = 2, acceptedFileTypes = [], editedOnCli
   let editor = createEditor();
   const fileInputs = acceptedFileTypes.map((type) => new FakeInput(type));
   const sendButton = new FakeElement();
+  sendButton.matches = (selector) => selector === ':disabled' && clock < sendReadyAfter;
   const uploadProgress = new FakeElement();
   const composer = {
     querySelector: () => null,
@@ -411,4 +412,42 @@ test('Google AI Mode confirms a cleared draft only while still on an AI Mode pag
     assert.equal(result.ok, !leaveAiModeOnSend);
     assert.equal(harness.clickCount(), 1);
   }
+});
+
+test('Google AI Mode waits for Send to enable after accepting an image', async () => {
+  const harness = createHarness({
+    google: true, confirmOnClick: 1, acceptedFileTypes: ['.png'], sendReadyAfter: 1500,
+  });
+  const image = { name: 'example.png', type: 'image/png', dataUrl: 'data:image/png;base64,YQ==' };
+  const result = await harness.submit('What is in this image?', [image]);
+  assert.equal(result.ok, true);
+  assert.equal(harness.clickCount(), 1);
+  assert.ok(harness.clickTimes[0] >= 1500);
+});
+
+test('Google AI Mode reports unavailable Send after waiting with the image and draft intact', async () => {
+  const harness = createHarness({ google: true, acceptedFileTypes: ['.png'], sendReadyAfter: Infinity });
+  const image = { name: 'example.png', type: 'image/png', dataUrl: 'data:image/png;base64,YQ==' };
+  const result = await harness.submit('What is in this image?', [image]);
+  assert.equal(result.ok, false);
+  assert.match(result.error, /did not expose an enabled Send button/);
+  assert.equal(harness.clickCount(), 0);
+  assert.equal(harness.prompt(), 'What is in this image?');
+});
+
+test('text-only chat waits for a temporarily disabled Send button', async () => {
+  const harness = createHarness({ confirmOnClick: 1, sendReadyAfter: 1500 });
+  const result = await harness.submit('Wait for the composer');
+  assert.equal(result.ok, true);
+  assert.equal(harness.clickCount(), 1);
+  assert.ok(harness.clickTimes[0] >= 1500);
+});
+
+test('text-only chat falls back when Send stays unavailable', async () => {
+  const harness = createHarness({ sendReadyAfter: Infinity });
+  const result = await harness.submit('Keep this draft');
+  assert.equal(result.ok, false);
+  assert.match(result.error, /did not confirm that the message was submitted/);
+  assert.equal(harness.clickCount(), 0);
+  assert.equal(harness.prompt(), 'Keep this draft');
 });
