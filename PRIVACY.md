@@ -9,12 +9,12 @@ Relay has no developer-operated backend, analytics, advertising, or tracking. It
 | Data | Handling |
 | --- | --- |
 | New-tab recovery task | Exact text, selected destinations, source tab and window, timestamp, result, and file metadata (name, MIME type, size, modified time) stored in `chrome.storage.session`. No cloud sync or local/sync storage of prompts. |
-| Attachment contents | Kept only in memory while composing and sending. After restoring a draft, reselect missing files. |
+| Attachment contents | Kept only in memory while composing, sending, and recovering an unsuccessful task. The running background worker can restore files after launcher navigation. If it restarts, reselect missing files. |
 | Last single-service choice | Service ID saved in extension-origin `localStorage`. |
 | Google search | Terms appear in the destination URL and may enter browser history. |
 | Clipboard | Changed only by an explicit **Copy prompt** fallback; system clipboard history/sync settings then apply. |
 
-Once all selected operations succeed, recovery text and file metadata are removed. Failed or unconfirmed tasks retain the draft. Closing the source tab clears its record. On access, a record expires one hour after completion, or one hour after creation if the worker was interrupted. Active jobs retain their draft until completion. Disabling, reloading, or updating the extension, or restarting Chrome, clears session memory. Recovery data is not exposed to content scripts under the default session access policy.
+Once all selected operations succeed, recovery text, file metadata, and retained attachment contents are removed. Failed or unconfirmed tasks retain the draft. Closing the source tab clears its record and retained attachments. On access, a record and its retained attachments expire one hour after completion, or one hour after creation if the worker was interrupted. Active jobs retain their draft until completion. Editing a recovered draft releases the worker's copy of its attachments. The composer keeps the files for the edited draft. Disabling, reloading, or updating the extension, or restarting Chrome, clears session memory. Recovery data is not exposed to content scripts under the default session access policy.
 
 ### Permissions
 
@@ -35,12 +35,12 @@ Relay 没有开发者后端、使用分析、广告或跟踪，不截取 AI 回�
 | 数据 | 处理方式 |
 | --- | --- |
 | 新标签页恢复任务 | 完整文字、所选服务、来源标签页和窗口、时间、结果和文件元数据（文件名、MIME 类型、大小及修改时间）暂存在 `chrome.storage.session`，问题不写入 local/sync 存储或云端同步。 |
-| 文件内容 | 编辑和发送时只保留在内存中。恢复草稿后需要重新选择缺失的文件。 |
+| 文件内容 | 编辑、发送和恢复未成功的任务时只保留在内存中。运行中的后台可在启动器页面跳转后恢复附件。后台重启后需要重新选择缺失的文件。 |
 | 上次单选服务 | 服务 ID 保存在扩展来源的 `localStorage`。 |
 | Google 搜索 | 搜索词包含在目标 URL 中，可能进入浏览器历史。 |
 | 剪贴板 | 仅主动点击 **Copy prompt** 时覆盖；之后受系统剪贴板历史 / 同步设置影响。 |
 
-所有所选操作均成功后，会移除恢复任务中的文字和文件元数据。失败或未确认发送时会保留草稿。关闭来源标签页会清理记录。再次访问时，已完成的记录从完成起保留一小时，后台中断的记录从创建起保留一小时。仍在运行的任务会保留草稿直到完成。停用、重载、更新扩展或重启 Chrome 会清空会话内存。会话恢复数据默认不向内容脚本开放。
+所有所选操作均成功后，会移除恢复任务中的文字、文件元数据及保留的附件内容。失败或未确认发送时会保留草稿。关闭来源标签页会清理记录及保留的附件。再次访问时，已完成的记录及附件从完成起保留一小时，后台中断的记录从创建起保留一小时。仍在运行的任务会保留草稿直到完成。修改恢复的草稿时，会释放后台保留的附件副本，输入区继续保留文件用于编辑后的草稿。停用、重载、更新扩展或重启 Chrome 会清空会话内存。会话恢复数据默认不向内容脚本开放。
 
 ### 权限
 

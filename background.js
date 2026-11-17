@@ -7,6 +7,8 @@ const LOG_PREFIX = '[Relay]';
 const siteLocks = new Map();
 const launcherRecordQueue = new Map();
 const activeLauncherJobs = new Map();
+// Retain failed-job files across launcher navigation without writing bytes to storage.
+const launcherAttachments = new Map();
 let nextLauncherJobId = 1;
 
 function delay(milliseconds) {
@@ -222,10 +224,14 @@ function launcherTab(sender) {
 async function readLauncherJob(tabId) {
   const key = launcherKey(tabId);
   const job = (await chrome.storage.session.get(key))[key];
-  if (!job) return null;
+  if (!job) {
+    launcherAttachments.delete(tabId);
+    return null;
+  }
   if (activeLauncherJobs.get(tabId) === job.id) return job;
   if (Date.now() - (job.finishedAt ?? job.createdAt) > 60 * 60 * 1000) {
     await chrome.storage.session.remove(key);
+    launcherAttachments.delete(tabId);
     return null;
   }
   if (job.state === 'pending') {
@@ -262,6 +268,7 @@ async function runLauncherJob(job, attachments) {
         // Do not recreate a recovery record after the source tab has been closed.
         try { await chrome.tabs.get(job.tabId); } catch {
           await chrome.storage.session.remove(launcherKey(job.tabId));
+          launcherAttachments.delete(job.tabId);
           return;
         }
         await chrome.storage.session.set({ [launcherKey(job.tabId)]: {
@@ -269,6 +276,7 @@ async function runLauncherJob(job, attachments) {
           prompt: result.ok ? '' : job.prompt,
           files: result.ok ? [] : job.files,
         } });
+        if (result.ok) launcherAttachments.delete(job.tabId);
         if (!job.multiple && !result.ok && navigation.url) {
           const tab = await chrome.tabs.get(job.tabId);
           // A login redirect or user navigation must not be overwritten.
@@ -317,6 +325,7 @@ async function startLauncherJob(message, sender, sendResponse) {
       throw new Error(`Could not keep a recovery draft. Nothing was sent. ${errorMessage(error)}`);
     }
     activeLauncherJobs.set(tab.id, job.id);
+    launcherAttachments.set(tab.id, { jobId: job.id, files: attachments });
   });
   sendResponse({ accepted: true, jobId: job.id });
   void runLauncherJob(job, attachments);
@@ -332,9 +341,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const tab = launcherTab(sender);
     const response = await runSerially(launcherRecordQueue, tab.id, async () => {
       const job = await readLauncherJob(tab.id);
-      if (message.action === 'launcher-job') return { ok: true, job };
+      if (message.action === 'launcher-job') {
+        const retained = launcherAttachments.get(tab.id);
+        // Polls need only status. Transfer file bytes once when restoring the page.
+        const attachments = message.restoreDraft && job && retained?.jobId === job.id ? retained.files : [];
+        return { ok: true, job, attachments };
+      }
       if (job && job.id === message.jobId && !activeLauncherJobs.has(tab.id)) {
         await chrome.storage.session.remove(launcherKey(tab.id));
+        launcherAttachments.delete(tab.id);
       }
       return { ok: true };
     });
@@ -349,6 +364,7 @@ chrome.action.onClicked.addListener((tab) => {
 });
 
 chrome.tabs.onRemoved?.addListener((tabId) => {
+  launcherAttachments.delete(tabId);
   runSerially(launcherRecordQueue, tabId, () => chrome.storage.session.remove(launcherKey(tabId)))
     .catch(console.error);
 });

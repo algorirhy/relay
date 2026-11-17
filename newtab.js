@@ -17,7 +17,7 @@
   const fileList = document.getElementById('attachment-list');
   document.getElementById('attachment-limit').textContent = RelayAttachments.limitLabel;
   const buttons = [];
-  // Failed single-tab jobs restore file metadata without keeping file bytes.
+  // A worker restart can leave metadata for files that need to be selected again.
   let attachments = [];
   let selected = services[0];
   // The launcher phase controls input. Draft mode and IME composition are independent.
@@ -194,11 +194,14 @@
     updateControls();
   }
 
-  function showJob(job, restoreDraft = false) {
+  function showJob(job, restoreDraft = false, restoredAttachments = []) {
     currentJobId = job.id;
     if (restoreDraft) {
       input.value = job.prompt || '';
-      attachments = job.files || [];
+      attachments = (job.files || []).map((metadata, index) => {
+        const payload = restoredAttachments[index];
+        return payload ? { ...metadata, file: RelayAttachments.decode(payload) } : metadata;
+      });
       renderFiles();
       multiple = job.multiple;
       if (multiple) {
@@ -398,9 +401,9 @@
   updateControls();
   void (async () => {
     try {
-      const response = await chrome.runtime.sendMessage({ action: 'launcher-job' });
+      const response = await chrome.runtime.sendMessage({ action: 'launcher-job', restoreDraft: true });
       if (!response?.ok) throw new Error(response?.error || 'Reload the extension to enable automatic sending.');
-      if (response.job) showJob(response.job, true);
+      if (response.job) showJob(response.job, true, response.attachments);
     } catch (error) {
       status.textContent = error.message || String(error);
     } finally {

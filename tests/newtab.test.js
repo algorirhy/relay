@@ -6,7 +6,7 @@ const vm = require('node:vm');
 
 const root = path.resolve(__dirname, '..');
 
-async function createHarness({ saved = null, storageFails = false, clipboardFails = false, clipboardMissing = false, submitGate = null, rejectLaunch = false, loseAcknowledgement = false, initialJob = null, navigationFails = false, pollFailures = 0 } = {}) {
+async function createHarness({ saved = null, storageFails = false, clipboardFails = false, clipboardMissing = false, submitGate = null, rejectLaunch = false, loseAcknowledgement = false, initialJob = null, restoredAttachments = [], navigationFails = false, pollFailures = 0 } = {}) {
   class Element {
     constructor(tagName = 'div') {
       this.tagName = tagName;
@@ -43,11 +43,18 @@ async function createHarness({ saved = null, storageFails = false, clipboardFail
   let job = initialJob;
   const context = vm.createContext({
     URL,
+    File,
+    atob,
     document,
     FileReader: class {
       readAsDataURL(file) {
         if (file.readError) this.onerror();
-        else { this.result = file.dataUrl; this.onload(); }
+        else if (file instanceof File) {
+          file.arrayBuffer().then((bytes) => {
+            this.result = `data:${file.type};base64,${Buffer.from(bytes).toString('base64')}`;
+            this.onload();
+          });
+        } else { this.result = file.dataUrl; this.onload(); }
       }
     },
     window: { setTimeout(callback) { timers.push(callback); }, location: { assign(url) {
@@ -65,7 +72,7 @@ async function createHarness({ saved = null, storageFails = false, clipboardFail
           pollFailures -= 1;
           throw new Error('Worker unavailable');
         }
-        return { ok: true, job };
+        return { ok: true, job, attachments: message.restoreDraft ? restoredAttachments : [] };
       }
       if (message.action === 'clear-launcher-job') {job=null; return {ok:true};}
       if (message.action === 'launch-prompt') {
@@ -348,6 +355,48 @@ test('recovered attachments must be reselected or removed before an attachment-o
   h.elements['launcher-form'].emit('submit');
   await h.settle();
   assert.deepEqual(h.records.messages.find((message) => message.action === 'launch-prompt').attachments, [sampleFile]);
+});
+
+test('a failed single-service draft restores three files and sends edited text without reselection', async () => {
+  const files = ['first.pdf', 'second.pdf', 'third.pdf'].map((name) => ({
+    ...sampleFile, name, type: 'application/pdf', dataUrl: 'data:application/pdf;base64,YWJj',
+  }));
+  const h = await createHarness({
+    restoredAttachments: files,
+    initialJob: {
+      id: 'failed', state: 'complete', prompt: 'Read these papers', siteIds: ['chatgpt'], multiple: false,
+      files: files.map(({ dataUrl, ...metadata }) => metadata),
+      result: { ok: false, results: [{ name: 'ChatGPT', ok: false, error: 'Unconfirmed submission' }] },
+    },
+  });
+  assert.ok(h.records.messages[0].restoreDraft);
+  assert.equal(h.elements['attachment-list'].children.length, 3);
+  for (const item of h.elements['attachment-list'].children) {
+    assert.doesNotMatch(item.children[0].textContent, /add again/);
+  }
+  h.type('Read these papers and compare their results');
+  assert.equal(h.elements['submit-button'].disabled, false);
+  h.elements['launcher-form'].emit('submit');
+  await h.settle();
+  const sent = h.records.messages.find((message) => message.action === 'launch-prompt');
+  assert.equal(sent.prompt, 'Read these papers and compare their results');
+  assert.deepEqual(sent.attachments, files);
+});
+
+test('failure in an open launcher preserves selected files for an edited retry', async () => {
+  const h = await createHarness({ saved: 'chatgpt' });
+  h.type('Read this file');
+  pickFiles(h, [sampleFile]);
+  h.elements['launcher-form'].emit('submit');
+  await h.settle();
+  await h.finish({ ok: false, results: [{ name: 'ChatGPT', ok: false, error: 'No confirmation' }] });
+  h.type('Read this file again');
+  assert.equal(h.elements['submit-button'].disabled, false);
+  h.elements['launcher-form'].emit('submit');
+  await h.settle();
+  const sent = h.records.messages.filter((message) => message.action === 'launch-prompt');
+  assert.equal(sent.length, 2);
+  assert.deepEqual(sent[1].attachments, [sampleFile]);
 });
 
 test('invalid file selections and read errors leave the draft editable without launching', async () => {

@@ -6,6 +6,7 @@
 
   const LOG_PREFIX = '[Relay]';
   const IS_MAC = navigator.platform.toUpperCase().includes('MAC');
+  const ATTACHMENT_TIMEOUT_MS = 120000;
   const USER_MESSAGE_SELECTORS = [
     '[data-message-author-role="user"]',
     '[data-testid="user-message"]',
@@ -280,11 +281,27 @@
     throw new Error('The message input did not accept the prompt.');
   }
 
-  async function waitForSendButton(site, timeoutMs = 6000) {
+  async function waitForSendButton(site, timeoutMs = 6000, { url, waitForUploads = false } = {}) {
     const deadline = Date.now() + timeoutMs;
+    let readyButton = null;
+    let readySince = 0;
     while (Date.now() < deadline) {
+      if (url) requireDestination(url);
       const button = findVisibleElement(site.sendSelectors, isEnabled);
-      if (button) return button;
+      if (!waitForUploads && button) return button;
+      const editor = waitForUploads && findVisibleElement(site.inputSelectors, isPromptEditor);
+      const composer = editor && (editor.closest('form') || editor.parentElement);
+      const uploadArea = composer?.querySelector('[data-composer-attachments]') || composer;
+      const uploading = uploadArea && [...uploadArea.querySelectorAll('[aria-busy="true"], [role="progressbar"]')].some(isVisible);
+      if (button && editor && !uploading) {
+        if (readyButton !== button) {
+          readyButton = button;
+          readySince = Date.now();
+        }
+        if (Date.now() - readySince >= 750) return button;
+      } else {
+        readyButton = null;
+      }
       await delay(150);
     }
     return null;
@@ -577,7 +594,9 @@
   }
 
   async function performSubmissionAttempt(site, draft, hasAttachments) {
-    const sendButton = await waitForSendButton(site, hasAttachments ? 60000 : 6000);
+    const sendButton = await waitForSendButton(site, hasAttachments ? ATTACHMENT_TIMEOUT_MS : 6000, {
+      url: hasAttachments ? draft.url : undefined, waitForUploads: hasAttachments,
+    });
     // A delayed first attempt can finish while waiting for Send to become ready.
     if (draft.previousAttempt && hasSubmissionEvidence(site, draft.previousAttempt)) {
       return { confirmed: true, method: draft.previousAttempt.method };
@@ -587,7 +606,7 @@
       throw new Error('The draft changed before sending.');
     }
     if (hasAttachments && !sendButton) {
-      throw new Error(`${site.name} did not enable Send for the attachments.`);
+      throw new Error(`${site.name} did not become ready to send the attachments within two minutes. Check the destination before retrying.`);
     }
 
     const snapshot = { url: draft.url, editor, text: draft.text, userMessageCount: userMessageCount() };
@@ -607,7 +626,7 @@
     }
 
     return {
-      confirmed: await waitForSubmissionEvidence(site, snapshot, hasAttachments ? 8000 : 6000),
+      confirmed: await waitForSubmissionEvidence(site, snapshot, hasAttachments ? ATTACHMENT_TIMEOUT_MS : 6000),
       snapshot: { ...snapshot, method },
       method,
     };

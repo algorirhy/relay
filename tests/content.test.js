@@ -10,13 +10,29 @@ const contentSource = fs.readFileSync(
 );
 const attachmentSource = fs.readFileSync(path.resolve(__dirname, '..', 'attachments.js'), 'utf8');
 
-function createHarness({ confirmOnClick = 2, acceptedFileTypes = [], editedOnClick, navigateOnUpload, google = false, leaveAiModeOnSend = false, richText = false, execCommandWorks = true } = {}) {
+function createHarness({ confirmOnClick = 2, acceptedFileTypes = [], editedOnClick, navigateOnUpload, google = false, leaveAiModeOnSend = false, richText = false, execCommandWorks = true, uploadDuration = 0, confirmationDelay = 0, navigateWhileUploading = false } = {}) {
   let clock = 0;
   let clickCount = 0;
   let runtimeMessageListener;
   const uploads = [];
   const sentPrompts = [];
   let selectedEditor;
+  let uploadReadyAt = 0;
+  let confirmationAt = Infinity;
+  let messageCount = 0;
+  const clickTimes = [];
+
+  function advanceClock(milliseconds) {
+    clock += milliseconds;
+    if (navigateWhileUploading && uploads.length && clock < uploadReadyAt) {
+      window.location.href = 'https://chatgpt.com/c/user-navigation';
+    }
+    if (clock >= confirmationAt) {
+      editor.value = '';
+      messageCount += 1;
+      confirmationAt = Infinity;
+    }
+  }
 
   class FakeElement {
     constructor() {
@@ -29,7 +45,7 @@ function createHarness({ confirmOnClick = 2, acceptedFileTypes = [], editedOnCli
     getBoundingClientRect() { return { bottom: 100 }; }
     getClientRects() { return [{}]; }
     matches() { return false; }
-    closest() { return null; }
+    closest(selector) { return selector === 'form' ? composer : null; }
     focus() {}
     dispatchEvent() { return true; }
   }
@@ -55,6 +71,7 @@ function createHarness({ confirmOnClick = 2, acceptedFileTypes = [], editedOnCli
     dispatchEvent(event) {
       if (event.type === 'change') {
         uploads.push([this.accept, Array.from(this.files, (file) => file.name)]);
+        uploadReadyAt = clock + uploadDuration;
         if (navigateOnUpload) window.location.href = 'https://chatgpt.com/c/other';
       }
       return true;
@@ -103,8 +120,14 @@ function createHarness({ confirmOnClick = 2, acceptedFileTypes = [], editedOnCli
   let editor = createEditor();
   const fileInputs = acceptedFileTypes.map((type) => new FakeInput(type));
   const sendButton = new FakeElement();
+  const uploadProgress = new FakeElement();
+  const composer = {
+    querySelector: () => null,
+    querySelectorAll: () => clock < uploadReadyAt ? [uploadProgress] : [],
+  };
   sendButton.click = () => {
     clickCount += 1;
+    clickTimes.push(clock);
     sentPrompts.push(editor.value);
     if (leaveAiModeOnSend) window.location.href = 'https://www.google.com/search';
     if (editedOnClick !== undefined) {
@@ -112,7 +135,11 @@ function createHarness({ confirmOnClick = 2, acceptedFileTypes = [], editedOnCli
       editor = createEditor();
       editor.value = editedOnClick;
     } else if (clickCount >= confirmOnClick) {
-      editor.value = '';
+      if (confirmationDelay) confirmationAt = clock + confirmationDelay;
+      else {
+        editor.value = '';
+        messageCount += 1;
+      }
     }
   };
 
@@ -133,6 +160,7 @@ function createHarness({ confirmOnClick = 2, acceptedFileTypes = [], editedOnCli
       if (selector === '#editor') return [editor];
       if (selector === '#send') return [sendButton];
       if (selector === 'input[type="file"]') return fileInputs;
+      if (selector === '[data-message-author-role="user"]') return Array.from({ length: messageCount }, () => ({}));
       return [];
     },
     addEventListener() {},
@@ -164,7 +192,7 @@ function createHarness({ confirmOnClick = 2, acceptedFileTypes = [], editedOnCli
     removeEventListener() {},
     postMessage() {},
     setTimeout(callback, milliseconds) {
-      clock += milliseconds;
+      advanceClock(milliseconds);
       queueMicrotask(callback);
       return 1;
     },
@@ -205,7 +233,7 @@ function createHarness({ confirmOnClick = 2, acceptedFileTypes = [], editedOnCli
     KeyboardEvent: class {},
     Date: { now: () => clock },
     setTimeout(callback, milliseconds) {
-      clock += milliseconds;
+      advanceClock(milliseconds);
       queueMicrotask(callback);
       return 1;
     },
@@ -233,6 +261,7 @@ function createHarness({ confirmOnClick = 2, acceptedFileTypes = [], editedOnCli
     prompt: () => editor.value,
     uploads,
     sentPrompts,
+    clickTimes,
   };
 }
 
@@ -313,6 +342,50 @@ test('a send with files is not repeated when the page gives no confirmation', as
   assert.equal(result.ok, false);
   assert.match(result.error, /did not confirm/);
   assert.equal(harness.clickCount(), 1);
+});
+
+test('three slow attachments wait for upload progress and delayed submission confirmation', async () => {
+  const harness = createHarness({
+    acceptedFileTypes: ['.pdf'], confirmOnClick: 1, uploadDuration: 75000, confirmationDelay: 30000,
+  });
+  const attachments = ['first.pdf', 'second.pdf', 'third.pdf'].map((name) => ({
+    name, type: 'application/pdf', lastModified: 0, dataUrl: 'data:application/pdf;base64,YQ==',
+  }));
+  const response = await harness.submit('Read all three papers', attachments);
+  assert.equal(response.ok, true);
+  assert.deepEqual(harness.uploads, [['.pdf', attachments.map((file) => file.name)]]);
+  assert.equal(harness.clickCount(), 1);
+  assert.ok(harness.clickTimes[0] >= 75000, 'An enabled Send button must still wait for upload progress');
+});
+
+test('an attachment-only send can confirm a delayed user message without editor text', async () => {
+  const harness = createHarness({ acceptedFileTypes: ['.txt'], confirmOnClick: 1, confirmationDelay: 30000 });
+  const result = await harness.submit('', [{
+    name: 'notes.txt', type: 'text/plain', dataUrl: 'data:text/plain;base64,YQ==',
+  }]);
+  assert.equal(result.ok, true);
+  assert.equal(harness.clickCount(), 1);
+});
+
+test('uploads still in progress at the deadline leave the draft unsent', async () => {
+  const harness = createHarness({ acceptedFileTypes: ['.txt'], uploadDuration: 180000 });
+  const result = await harness.submit('Keep this draft', [{
+    name: 'notes.txt', type: 'text/plain', dataUrl: 'data:text/plain;base64,YQ==',
+  }]);
+  assert.equal(result.ok, false);
+  assert.match(result.error, /ready.*two minutes/);
+  assert.equal(harness.clickCount(), 0);
+  assert.equal(harness.prompt(), 'Keep this draft');
+});
+
+test('user navigation while waiting for upload readiness stops before Send', async () => {
+  const harness = createHarness({ acceptedFileTypes: ['.txt'], uploadDuration: 75000, navigateWhileUploading: true });
+  const result = await harness.submit('Keep this draft', [{
+    name: 'notes.txt', type: 'text/plain', dataUrl: 'data:text/plain;base64,YQ==',
+  }]);
+  assert.equal(result.ok, false);
+  assert.match(result.error, /destination page changed/);
+  assert.equal(harness.clickCount(), 0);
 });
 
 test('leaving the original conversation after one upload prevents further files and prompt entry', async () => {

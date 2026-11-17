@@ -44,6 +44,7 @@ function createHarness(initialTabs, {
   };
   let runtimeMessageListener;
   let actionClickListener;
+  let tabRemovedListener;
   let nextTabId = 100;
 
   const session = JSON.parse(JSON.stringify(initialSession));
@@ -78,6 +79,7 @@ function createHarness(initialTabs, {
       },
     },
     tabs: {
+      onRemoved: { addListener(listener) { tabRemovedListener = listener; } },
       async query(queryInfo) {
         if (!queryInfo.url) return [];
         const patterns = Array.isArray(queryInfo.url) ? queryInfo.url : [queryInfo.url];
@@ -159,7 +161,7 @@ function createHarness(initialTabs, {
     }
     assert.fail('Launcher delivery did not finish');
   }
-  return { records, request, waitForLauncher, session, runtimeMessageListener, actionClickListener };
+  return { records, request, waitForLauncher, session, runtimeMessageListener, actionClickListener, tabRemovedListener };
 }
 
 const launcherTab = {id: 1, windowId: 1, index: 0, url: 'chrome-extension://test/newtab.html'};
@@ -382,6 +384,50 @@ test('a failed attachment-only job recovers file metadata without storing bytes 
   assert.deepEqual(job.files, [metadata]);
   assert.doesNotMatch(JSON.stringify(h.session), /YWJj/);
   assert.deepEqual(h.records.updated, [{ tabId: 1, url: 'https://chatgpt.com/' }]);
+});
+
+test('failed single delivery restores attachment bytes only on request and clears them on discard', async () => {
+  const h = createHarness([launcherTab], { failSubmitFor: ['chatgpt'] });
+  await h.request({ action: 'launch-prompt', prompt: 'Read this', siteIds: ['chatgpt'], attachments: [attachment] });
+  const job = await h.waitForLauncher();
+  assert.equal(job.result.ok, false);
+  assert.equal((await h.request({ action: 'launcher-job' })).attachments.length, 0);
+  const recovered = await h.request({ action: 'launcher-job', restoreDraft: true });
+  assert.deepEqual(JSON.parse(JSON.stringify(recovered.attachments)), [attachment]);
+  assert.doesNotMatch(JSON.stringify(h.session), /YWJj/);
+  await h.request({ action: 'clear-launcher-job', jobId: job.id });
+  assert.equal((await h.request({ action: 'launcher-job', restoreDraft: true })).job, null);
+  assert.equal((await h.request({ action: 'launcher-job', restoreDraft: true })).attachments.length, 0);
+});
+
+test('successful attachment delivery releases retained file bytes', async () => {
+  const h = createHarness([launcherTab]);
+  await h.request({ action: 'launch-prompt', prompt: 'Read this', siteIds: ['chatgpt'], attachments: [attachment] });
+  assert.equal((await h.waitForLauncher()).result.ok, true);
+  assert.equal((await h.request({ action: 'launcher-job', restoreDraft: true })).attachments.length, 0);
+});
+
+test('worker restart restores metadata while expired and closed drafts release retained files', async () => {
+  let now = Date.now();
+  const h = createHarness([launcherTab], { failSubmitFor: ['chatgpt'], now: () => now });
+  await h.request({ action: 'launch-prompt', prompt: 'Keep this', siteIds: ['chatgpt'], attachments: [attachment] });
+  const job = await h.waitForLauncher();
+  const restarted = createHarness([launcherTab], { initialSession: h.session });
+  const recovered = await restarted.request({ action: 'launcher-job', restoreDraft: true });
+  assert.equal(recovered.attachments.length, 0);
+  assert.deepEqual(recovered.job.files, job.files);
+  now += 61 * 60 * 1000;
+  const expired = await h.request({ action: 'launcher-job', restoreDraft: true });
+  assert.equal(expired.job, null);
+  assert.equal(expired.attachments.length, 0);
+
+  const closed = createHarness([launcherTab], { failSubmitFor: ['chatgpt'] });
+  await closed.request({ action: 'launch-prompt', prompt: 'Close this', siteIds: ['chatgpt'], attachments: [attachment] });
+  await closed.waitForLauncher();
+  closed.tabRemovedListener(1);
+  const removed = await closed.request({ action: 'launcher-job', restoreDraft: true });
+  assert.equal(removed.job, null);
+  assert.equal(removed.attachments.length, 0);
 });
 
 test('an invalid attachment or a Google file request without a question never leaves the launcher', async () => {
