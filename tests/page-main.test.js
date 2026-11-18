@@ -6,7 +6,7 @@ const vm = require('node:vm');
 
 const read = (file) => fs.readFileSync(path.resolve(__dirname, '..', file), 'utf8');
 
-function createHarness({ richText = true, confirm = true, replace = false, acceptsText = true, alteredDraft = '', disappear = false, navigateAt = Infinity, preview = false, sendAfterTyping = false } = {}) {
+function createHarness({ richText = true, confirm = true, replace = false, acceptsText = true, initialDraft = '', alteredDraft = '', disappear = false, navigateAt = Infinity, preview = false, sendAfterTyping = false } = {}) {
   let clock = 1;
   let insertions = 0;
   let clicks = 0;
@@ -28,6 +28,8 @@ function createHarness({ richText = true, confirm = true, replace = false, accep
     querySelector() { return null; }
     focus() { selectedEditor = this; }
     dispatchEvent() { return true; }
+    addEventListener() {}
+    removeEventListener() {}
   }
 
   class TextArea extends Element {
@@ -59,6 +61,8 @@ function createHarness({ richText = true, confirm = true, replace = false, accep
     { getAttribute: (name) => name === 'data-file-name' ? 'notes.txt' : null },
   ] : [];
   let editor = richText ? new RichEditor() : new TextArea();
+  if (richText) editor.innerText = initialDraft;
+  else editor.value = initialDraft;
   const button = new Element();
   button.id = 'flow-end-msg-send';
   button.click = () => {
@@ -112,6 +116,7 @@ function createHarness({ richText = true, confirm = true, replace = false, accep
   };
   const readyButton = () => !sendAfterTyping || Boolean(editor?.innerText || editor?.value);
   const document = {
+    hasFocus: () => false,
     addEventListener() {},
     querySelector(selector) { return selector === '#flow-end-msg-send' && readyButton() ? button : null; },
     querySelectorAll(selector) {
@@ -126,8 +131,8 @@ function createHarness({ richText = true, confirm = true, replace = false, accep
     },
     createRange: () => ({ selectNodeContents() {} }),
     execCommand(command, _ui, text) {
-      assert.equal(command, 'insertText');
-      insertions += 1;
+      assert.ok(command === 'insertText' || command === 'delete');
+      if (command === 'insertText') insertions += 1;
       if (!acceptsText) return false;
       if (richText) selectedEditor.innerText = text;
       else selectedEditor.value = text;
@@ -151,7 +156,7 @@ function createHarness({ richText = true, confirm = true, replace = false, accep
     Date: { now: () => clock },
     setTimeout: timer, clearTimeout() {},
   });
-  for (const file of ['sites.js', 'attachments.js', 'page-main.js', 'content.js']) {
+  for (const file of ['sites.js', 'attachments.js', 'drafts.js', 'page-main.js', 'content.js']) {
     vm.runInContext(read(file), context, { filename: file });
   }
 
@@ -180,6 +185,25 @@ test('Doubao delivery fills and submits the current rich editor through the main
   assert.equal(harness.editor().innerText, '');
   assert.equal(harness.clicks(), 1);
   assert.equal(harness.insertions(), 1, 'main world must preserve the already-filled framework document');
+});
+
+test('Doubao cleans up its unchanged prompt when submission cannot be confirmed', async () => {
+  const harness = createHarness({ confirm: false });
+  const result = await harness.submit('Relay draft');
+  assert.equal(result.ok, false);
+  assert.equal(harness.clicks(), 1);
+  assert.equal(harness.editor().innerText, '');
+});
+
+test('Doubao preserves an existing draft and skips the upload', async () => {
+  const harness = createHarness({ initialDraft: 'Existing draft', preview: true });
+  const file = { name: 'notes.txt', type: 'text/plain', dataUrl: 'data:text/plain;base64,YQ==' };
+  const result = await harness.submit('Relay draft', [file]);
+  assert.equal(result.ok, false);
+  assert.equal(result.preserveDestination, true);
+  assert.equal(harness.uploads(), 0);
+  assert.equal(harness.clicks(), 0);
+  assert.equal(harness.editor().innerText, 'Existing draft');
 });
 
 test('a replaced Doubao composer with different unsent text does not confirm delivery', async () => {

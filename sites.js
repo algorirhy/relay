@@ -290,6 +290,22 @@
     return site.newChatUrl;
   }
 
+  function isFreshDestination(siteId, requestedUrl, actualUrl) {
+    if (siteId === 'google') {
+      return isGoogleAiPage(actualUrl) && !new URL(actualUrl).searchParams.getAll('q').some(Boolean);
+    }
+
+    const site = findSiteByUrl(actualUrl);
+    if (site?.id !== siteId) return false;
+    const requestedPath = new URL(requestedUrl).pathname.replace(/\/$/, '');
+    const actualPath = new URL(actualUrl).pathname.replace(/\/$/, '');
+    if (actualPath === requestedPath) return true;
+
+    // A default Gemini launch can resolve to the user's default account.
+    return Boolean(site.preserveGoogleAccountPath && requestedPath === '/app' &&
+      /^\/u\/\d+\/app$/.test(actualPath));
+  }
+
   globalThis.RelaySites = Object.freeze({
     sites: frozenSites,
     launcherServices,
@@ -299,5 +315,6 @@
     findSiteByUrl,
     isGoogleAiPage,
     getNewChatUrl,
+    isFreshDestination,
   });
 })();

@@ -230,6 +230,9 @@ test('a rejected background task retains text and enables explicit copy fallback
   h.elements['copy-prompt'].emit('click');
   await h.settle();
   assert.deepEqual(h.records.copied,['keep original']);
+  assert.equal(h.elements['copy-prompt'].textContent, 'Copied');
+  h.type('New text');
+  assert.equal(h.elements['copy-prompt'].textContent, 'Copy prompt');
 });
 
 test('copy fallback failure preserves and selects text', async () => {

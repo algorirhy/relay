@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Check the first loaded page before sending and preserve existing site drafts. Clear unchanged text left behind by the current Relay attempt.
 - Focus the input when Chrome returns focus to the page after Esc, or when Alt / Option + 1–7 selects a service.
 - Add configurable shortcuts to open Relay or focus a fresh Relay tab. Show the assigned focus shortcut in the launcher.
 - Fix a submission-check crash while waiting for Google AI Mode or text-only chat Send controls to become enabled.

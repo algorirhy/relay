@@ -44,7 +44,7 @@
         "https://www.doubao.com/*",
         "https://doubao.com/*"
       ],
-      "js": ["sites.js", "attachments.js", "page-main.js"],
+      "js": ["sites.js", "attachments.js", "drafts.js", "page-main.js"],
       "run_at": "document_start",
       "world": "MAIN"
     },
@@ -58,7 +58,7 @@
         "*://*.google.com/webhp?*aep=11*",
         "*://*.google.com/search?*udm=50*"
       ],
-      "js": ["sites.js", "attachments.js", "content.js"],
+      "js": ["sites.js", "attachments.js", "drafts.js", "content.js"],
       "run_at": "document_idle"
     },
     {
@@ -72,7 +72,7 @@
         "https://www.doubao.com/*",
         "https://doubao.com/*"
       ],
-      "js": ["sites.js", "attachments.js", "content.js"],
+      "js": ["sites.js", "attachments.js", "drafts.js", "content.js"],
       "run_at": "document_idle"
     }
   ],

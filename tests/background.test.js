@@ -26,12 +26,14 @@ function matchesPattern(url, pattern) {
 
 function createHarness(initialTabs, {
   failSubmitFor = [],
+  preserveDestinationFor = [],
   submitGate = null,
   storageFails = false,
   failCreateFor = [],
   initialSession = {},
   afterSubmit = () => {},
   afterPing = () => {},
+  afterNavigate = () => {},
   afterStorageRead = () => {},
   now = Date.now,
 } = {}) {
@@ -91,6 +93,7 @@ function createHarness(initialTabs, {
         const tab = tabs.find((candidate) => candidate.id === tabId);
         Object.assign(tab, updateInfo, { status: 'complete' });
         records.updated.push({ tabId, ...updateInfo });
+        if (updateInfo.url) afterNavigate(tab);
         return { ...tab };
       },
       async create(createInfo) {
@@ -104,6 +107,7 @@ function createHarness(initialTabs, {
         };
         tabs.push(tab);
         records.created.push({ ...createInfo, id: tab.id });
+        afterNavigate(tab);
         return { ...tab };
       },
       async get(tabId) {
@@ -126,6 +130,9 @@ function createHarness(initialTabs, {
           afterSubmit(tab);
           if (failSubmitFor.includes(siteIdFromUrl(tab.url))) {
             throw new Error('Simulated site failure');
+          }
+          if (preserveDestinationFor.includes(siteIdFromUrl(tab.url))) {
+            return { ok: false, error: 'An existing draft was found', preserveDestination: true };
           }
           records.submitted.push({
             tabId,
@@ -476,6 +483,59 @@ test('delivery stops when the loaded tab switches to another conversation on the
   assert.equal(job.prompt, 'Keep this draft');
   assert.equal(h.records.submitted.length, 0);
   assert.equal(h.records.updated.length, 1, 'Relay must leave the other conversation open');
+});
+
+test('delivery never starts if the first completed page is already an existing conversation', async () => {
+  for (const multiple of [false, true]) {
+    const h = createHarness([launcherTab], {
+      afterNavigate(tab) {
+        if (tab.url === 'https://chatgpt.com/') tab.url = 'https://chatgpt.com/c/another-conversation';
+      },
+    });
+    await h.request({ action: 'launch-prompt', prompt: 'Keep this draft', siteIds: ['chatgpt'], multiple });
+    const job = await h.waitForLauncher();
+    assert.equal(job.result.ok, false);
+    assert.match(job.result.results[0].error, /page changed/);
+    assert.equal(job.prompt, 'Keep this draft');
+    assert.deepEqual(h.records.submitted, []);
+    assert.equal(h.records.updated.length, multiple ? 0 : 1);
+  }
+});
+
+test('delivery accepts fresh Google AI Mode and Gemini account redirects', async () => {
+  const h = createHarness([launcherTab], {
+    afterNavigate(tab) {
+      if (tab.url === 'https://www.google.com/ai') tab.url = 'https://www.google.com/webhp?aep=11';
+      if (tab.url === 'https://gemini.google.com/app') tab.url = 'https://gemini.google.com/u/0/app?hl=ja';
+    },
+  });
+  await h.request({ action: 'launch-prompt', prompt: 'Read this', siteIds: ['google', 'gemini'], multiple: true, attachments: [attachment] });
+  assert.equal((await h.waitForLauncher()).result.ok, true);
+  assert.equal(h.records.submitted.length, 2);
+});
+
+test('single delivery preserves an occupied destination and keeps the Relay recovery draft', async () => {
+  const h = createHarness([launcherTab], { preserveDestinationFor: ['chatgpt'] });
+  await h.request({ action: 'launch-prompt', prompt: 'Keep me in Relay', siteIds: ['chatgpt'] });
+  const job = await h.waitForLauncher();
+  assert.equal(job.result.ok, false);
+  assert.equal(job.prompt, 'Keep me in Relay');
+  assert.deepEqual(h.records.updated, [{ tabId: 1, url: 'https://chatgpt.com/' }]);
+});
+
+test('delivery rejects a different Gemini account and a Google AI Mode search with an existing query', async () => {
+  const h = createHarness([launcherTab, { id: 2, windowId: 1, url: 'https://gemini.google.com/u/2/app/previous' }], {
+    afterNavigate(tab) {
+      if (tab.url === 'https://www.google.com/ai') tab.url = 'https://www.google.com/search?udm=50&q=other';
+      if (tab.url === 'https://gemini.google.com/u/2/app') tab.url = 'https://gemini.google.com/u/0/app';
+    },
+  });
+  await h.request({ action: 'launch-prompt', prompt: 'Keep this draft', siteIds: ['google', 'gemini'], multiple: true, attachments: [attachment] });
+  const job = await h.waitForLauncher();
+  assert.equal(job.result.ok, false);
+  assert.equal(job.result.results.every((item) => !item.ok), true);
+  assert.equal(job.prompt, 'Keep this draft');
+  assert.deepEqual(h.records.submitted, []);
 });
 
 test('an in-flight status read cannot overwrite the completion record', async () => {

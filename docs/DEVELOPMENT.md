@@ -8,6 +8,7 @@ Relay is a Chrome Manifest V3 extension written in plain JavaScript, HTML, and C
 | `newtab.html`, `newtab.js`, `styles.css`, `theme.css` | Composer, file picker, service selection, shortcuts, results, and draft recovery. |
 | `sites.js` | Service order, supported hosts, new-chat URLs, and page selectors. Google uses a separate AI Mode route for requests with files. |
 | `attachments.js` | Shared limits, metadata, payload validation, decoding, and file input matching. |
+| `drafts.js` | Protects existing website drafts and tracks text inserted by the current job. |
 | `background.js` | Validates launcher requests, coordinates tabs and delivery, keeps session drafts, and reports failures. |
 | `content.js` | Site shortcuts, editor and file input handling, and submission checks. |
 | `page-main.js` | Page-context bridge for Gemini and Doubao uploads and Doubao submission. |
@@ -26,7 +27,7 @@ The launcher, worker, and provider adapters own their respective transitions. Dr
 | Files | `newtab.js`: selected → validated → reading → encoded payload. Restore files from the running worker's memory after launcher navigation. | A restarted worker has only metadata, so missing files block submission until reselected or removed. The composer stays locked during file reads. |
 | Results and copy | `newtab.js`: pending, confirmed, failed or interrupted; an explicit copy can succeed or fail. | All-success consumes the draft. Partial results keep it for review. Clipboard feedback applies to the draft that initiated the copy. |
 | Recovery record | `background.js`: absent → pending → complete. A pending record with no owning worker job reads as interrupted. | Serialize registration, reads, completion and removal per tab. Save text and file metadata before acknowledging. Keep attachment bytes in worker memory and return them only for page restoration. Release them on success, discard, tab close or inactive-record expiry. Recovery never replays a job. See [Privacy](../PRIVACY.md). |
-| Destination routing | `background.js`: wait for service lock → open or reuse a tab → wait for load and adapter → dispatch → record result. | One delivery at a time per service. Reuse a settled tab. Bind dispatch to the loaded URL and adapter. A failed single delivery restores the launcher only while its tab still shows the page Relay opened and has no pending navigation. |
+| Destination routing | `background.js`: wait for service lock → open or reuse a tab → verify the fresh page → wait for the adapter → dispatch → record result. | One delivery at a time per service. Dispatch only on the verified URL. A failed single delivery can restore the launcher while the destination URL is unchanged, with no pending navigation or site draft to preserve. |
 | Google web search | `newtab.js` navigates the current tab in single mode. `background.js` opens a background tab in multiple mode. | Success measures tab creation, so the result is reported as opened search. |
 | Generic chat | `content.js`: wait for live editor → upload if needed → fill → wait for Send → look for confirmation. | Recheck the URL across asynchronous uploads and before filling or sending. File sends wait up to two minutes for visible upload progress to finish and Send to remain enabled for 750 ms, then up to two minutes for submission evidence. An unchanged text-only draft can retry once. File sends click once and depend on the site's upload controls. |
 | Google AI Mode | `content.js`: locate editor → upload or paste files → observe all previews → fill → click Send → confirm or fail. | One submission. A route outside AI Mode ends confirmation. Availability and preview detection depend on account access and Google's UI. |
@@ -36,6 +37,8 @@ The launcher, worker, and provider adapters own their respective transitions. Dr
 | Provider shortcuts | `content.js` and `background.js`: dispatch a command, then try a site control, keyboard event or navigation. | Each invocation ends at its first matching action. The browser and provider own subsequent navigation. |
 
 Chrome can expose a genuine overridden new tab as `chrome://newtab/` in `tabs.get`. The worker accepts that alias for the source tab and authenticates the sender against the extension document URL. The service catalog and attachment validators are stateless.
+
+Page adapters check for existing text before uploading or filling a draft. They clear inserted text only while the original editor remains on the same URL, still contains that text, and has received no further edit events.
 
 ## Adapter maintenance
 

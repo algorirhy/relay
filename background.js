@@ -185,15 +185,13 @@ function deliverToChatService(site, job, attachments, navigation) {
       if (!Number.isInteger(tabId)) throw new Error('Chrome did not return a usable tab.');
       if (!job.multiple) navigation.url = url;
       const initialPage = await waitForTabComplete(tabId);
-      if (!job.multiple && site.id === 'google' && RelaySites.isGoogleAiPage(initialPage.url)) {
-        navigation.url = initialPage.url; // Google redirects its public AI Mode entry point.
+      if (!RelaySites.isFreshDestination(site.id, url, initialPage.url)) {
+        throw new Error('The destination page changed before sending.');
       }
+      if (!job.multiple) navigation.url = initialPage.url;
       await waitForContentScript(tabId, site.id);
       const loaded = await chrome.tabs.get(tabId);
       if (loaded.pendingUrl || loaded.url !== initialPage.url) {
-        throw new Error('The destination page changed before sending.');
-      }
-      if (!(site.id === 'google' ? RelaySites.isGoogleAiPage(loaded.url) : RelaySites.findSiteByUrl(loaded.url)?.id === site.id)) {
         throw new Error('The destination page changed before sending.');
       }
       const response = await chrome.tabs.sendMessage(tabId, {
@@ -202,7 +200,10 @@ function deliverToChatService(site, job, attachments, navigation) {
         prompt: job.prompt,
         attachments,
       });
-      if (!response?.ok) throw new Error(response?.error || 'The site did not confirm submission.');
+      if (!response?.ok) {
+        if (!job.multiple && response?.preserveDestination) delete navigation.url;
+        throw new Error(response?.error || 'The site did not confirm submission.');
+      }
       return { siteId: site.id, name: site.name, ok: true, method: response.method };
     } catch (error) {
       console.error(`${LOG_PREFIX} ${site.name}:`, error);

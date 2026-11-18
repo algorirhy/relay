@@ -327,7 +327,10 @@
     event.preventDefault();
     void submit();
   });
-  input.addEventListener('input', editDraft);
+  input.addEventListener('input', () => {
+    copyButton.textContent = 'Copy prompt';
+    editDraft();
+  });
   attachButton.addEventListener('click', () => fileInput.click());
   fileInput.addEventListener('change', () => {
     addFiles(fileInput.files);

@@ -77,14 +77,14 @@ test('manifest loads shared config before the content script', () => {
       'https://www.doubao.com/*',
       'https://doubao.com/*',
     ],
-    js: ['sites.js', 'attachments.js', 'page-main.js'],
+    js: ['sites.js', 'attachments.js', 'drafts.js', 'page-main.js'],
     run_at: 'document_start',
     world: 'MAIN',
   });
   const catalog = loadSiteCatalog();
   assert.deepEqual(manifest.content_scripts[2].matches, Array.from(catalog.sites).flatMap((site) => [...site.tabPatterns]));
   for (const entry of manifest.content_scripts.slice(1)) {
-    assert.deepEqual(entry.js, ['sites.js', 'attachments.js', 'content.js']);
+    assert.deepEqual(entry.js, ['sites.js', 'attachments.js', 'drafts.js', 'content.js']);
   }
 });
 

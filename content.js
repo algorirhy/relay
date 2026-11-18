@@ -229,7 +229,7 @@
 
     let inserted = false;
     try {
-      inserted = document.execCommand('insertText', false, text);
+      inserted = document.execCommand(text ? 'insertText' : 'delete', false, text);
     } catch (_error) {
       inserted = false;
     }
@@ -265,16 +265,32 @@
     return element.innerText || element.textContent || '';
   }
 
-  async function fillPrompt(editor, prompt) {
+  async function fillPrompt(editor, prompt, url) {
+    RelayDrafts.requireAvailable(editor, '', readEditorText);
+    const text = prompt.trim();
+    if (!text) return null;
+
     if (editor instanceof HTMLTextAreaElement || editor instanceof HTMLInputElement) {
       setNativeInputValue(editor, prompt);
     } else {
       setContentEditableValue(editor, prompt);
     }
 
+    requireDestination(url);
+    if (editor.isConnected && readEditorText(editor).trim() === text) {
+      return RelayDrafts.trackInserted(editor, readEditorText, (target) => {
+        if (target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement) {
+          setNativeInputValue(target, '');
+        } else {
+          setContentEditableValue(target, '');
+        }
+      });
+    }
+
     const deadline = Date.now() + 2000;
     while (Date.now() < deadline) {
-      if (readEditorText(editor).trim() === prompt.trim()) return;
+      requireDestination(url);
+      if (editor.isConnected && readEditorText(editor).trim() === text) return null;
       await delay(100);
     }
 
@@ -479,7 +495,11 @@
         window.clearTimeout(timeout);
         window.removeEventListener('message', handleResult);
         if (event.data.ok) resolve(event.data);
-        else reject(new Error(event.data.error || `${siteId} rejected the request.`));
+        else {
+          const error = new Error(event.data.error || `${siteId} rejected the request.`);
+          error.preserveDestination = event.data.preserveDestination === true;
+          reject(error);
+        }
       }
 
       window.addEventListener('message', handleResult);
@@ -515,6 +535,7 @@
       throw new Error('Google AI Mode input is unavailable. Check that AI Mode is enabled for your account.');
     });
     requireDestination(url);
+    RelayDrafts.requireAvailable(editor, '', readEditorText);
     const files = attachments.map(RelayAttachments.decode);
     const previewCount = () => {
       const labels = files.filter(({ name }) => document.body.innerText.includes(name)).length;
@@ -549,30 +570,33 @@
     }
     const liveEditor = await waitForPromptEditor(site, url, 6000);
     requireDestination(url);
-    await fillPrompt(liveEditor, prompt);
-    const send = await waitForSendButton(site, 10000);
-    if (!send) throw new Error('Google AI Mode did not expose an enabled Send button.');
-    if (window.location.href !== url || !liveEditor.isConnected ||
-        readEditorText(liveEditor).trim() !== prompt.trim() ||
-        previewCount() - initialPreviews < files.length) {
-      throw new Error('The Google AI Mode draft changed before sending.');
-    }
-    const initialMessages = userMessageCount();
-    send.click();
-    const submissionDeadline = Date.now() + 6000;
-    while (Date.now() < submissionDeadline) {
-      if (window.location.href !== url) {
-        if (RelaySites.isGoogleAiPage(window.location.href)) return { ok: true, method: 'button' };
-        break;
+    const cleanup = await fillPrompt(liveEditor, prompt, url);
+    return RelayDrafts.withCleanup(cleanup, async () => {
+      const send = await waitForSendButton(site, 10000, { url });
+      requireDestination(url);
+      if (liveEditor.isConnected) RelayDrafts.requireAvailable(liveEditor, prompt, readEditorText);
+      if (!send) throw new Error('Google AI Mode did not expose an enabled Send button.');
+      if (!liveEditor.isConnected || readEditorText(liveEditor).trim() !== prompt.trim() ||
+          previewCount() - initialPreviews < files.length) {
+        throw new Error('The Google AI Mode draft changed before sending.');
       }
-      const current = findVisibleElement(site.inputSelectors, isPromptEditor);
-      if (userMessageCount() > initialMessages ||
-          (current && !readEditorText(current).trim() && previewCount() <= initialPreviews)) {
-        return { ok: true, method: 'button' };
+      const initialMessages = userMessageCount();
+      send.click();
+      const submissionDeadline = Date.now() + 6000;
+      while (Date.now() < submissionDeadline) {
+        if (window.location.href !== url) {
+          if (RelaySites.isGoogleAiPage(window.location.href)) return { ok: true, method: 'button' };
+          break;
+        }
+        const current = findVisibleElement(site.inputSelectors, isPromptEditor);
+        if (userMessageCount() > initialMessages ||
+            (current && !readEditorText(current).trim() && previewCount() <= initialPreviews)) {
+          return { ok: true, method: 'button' };
+        }
+        await delay(100);
       }
-      await delay(100);
-    }
-    throw new Error('Google AI Mode did not confirm that the files and question were submitted.');
+      throw new Error('Google AI Mode did not confirm that the files and question were submitted.');
+    });
   }
 
   function hasSubmissionEvidence(site, snapshot) {
@@ -602,7 +626,9 @@
       return { confirmed: true, method: draft.previousAttempt.method };
     }
     const editor = findVisibleElement(site.inputSelectors, isPromptEditor);
-    if (window.location.href !== draft.url || !editor || readEditorText(editor).trim() !== draft.text) {
+    requireDestination(draft.url);
+    if (editor) RelayDrafts.requireAvailable(editor, draft.text, readEditorText);
+    if (!editor || readEditorText(editor).trim() !== draft.text) {
       throw new Error('The draft changed before sending.');
     }
     if (hasAttachments && !sendButton) {
@@ -667,15 +693,18 @@
     const attachmentCount = attachments.length;
     // Upload widgets can replace the composer before the prompt is filled.
     if (attachmentCount) {
+      RelayDrafts.requireAvailable(editor, '', readEditorText);
       await attachFiles(site, attachments, editor, url);
       editor = await waitForPromptEditor(site, url);
     }
     requireDestination(url);
-    if (draft.text) await fillPrompt(editor, normalizedPrompt);
-    await delay(150);
-    const method = await sendPrompt(site, draft, attachmentCount > 0);
-    console.log(`${LOG_PREFIX} Submitted a message for ${site.name} using ${method}.`);
-    return { ok: true, siteId: site.id, method, attachmentCount };
+    const cleanup = await fillPrompt(editor, normalizedPrompt, url);
+    return RelayDrafts.withCleanup(cleanup, async () => {
+      await delay(150);
+      const method = await sendPrompt(site, draft, attachmentCount > 0);
+      console.log(`${LOG_PREFIX} Submitted a message for ${site.name} using ${method}.`);
+      return { ok: true, siteId: site.id, method, attachmentCount };
+    });
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -697,6 +726,7 @@
         .catch((error) => sendResponse({
           ok: false,
           error: error instanceof Error ? error.message : String(error),
+          preserveDestination: error?.preserveDestination === true,
         }));
       return true;
     }

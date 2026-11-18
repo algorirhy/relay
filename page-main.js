@@ -298,7 +298,7 @@
     return previews.length >= names.length;
   }
 
-  async function prepareDoubaoComposer(url, prompt, names) {
+  async function prepareDoubaoComposer(url, prompt, names, onFilled) {
     const hasFiles = names.length > 0;
     const startedAt = Date.now();
     const deadline = startedAt + (hasFiles ? 30000 : 20000);
@@ -313,9 +313,12 @@
       if (composer?.editor) {
         const { editor, sendButton } = composer;
         const value = readDoubaoPrompt(editor).trim();
+        if (!filledEditor) RelayDrafts.requireAvailable(editor, '', readDoubaoPrompt);
         if (value !== text) {
-          if (value || editor === filledEditor) throw new Error('The Doubao draft changed before sending.');
+          RelayDrafts.requireAvailable(editor, prompt, readDoubaoPrompt);
+          if (editor === filledEditor) throw new Error('The Doubao draft changed before sending.');
           setDoubaoPrompt(editor, prompt);
+          onFilled(editor);
           filledEditor = editor;
           stable = null;
           await delay(100);
@@ -381,7 +384,7 @@
   }
 
   function setDoubaoPrompt(editor, prompt) {
-    if (!prompt.trim() || readDoubaoPrompt(editor).trim() === prompt.trim()) return;
+    if (readDoubaoPrompt(editor).trim() === prompt.trim()) return;
 
     editor.focus();
     const isTextArea = editor instanceof HTMLTextAreaElement;
@@ -396,7 +399,7 @@
     }
     let inserted = false;
     try {
-      inserted = document.execCommand('insertText', false, prompt);
+      inserted = document.execCommand(prompt ? 'insertText' : 'delete', false, prompt);
     } catch (_error) {
       inserted = false;
     }
@@ -440,20 +443,29 @@
   }
 
   async function submitDoubao(url, prompt, attachments) {
+    const initialEditor = findDoubaoComposer()?.editor;
+    if (initialEditor) RelayDrafts.requireAvailable(initialEditor, '', readDoubaoPrompt);
     const names = attachments.length ? await setFiles('doubao', attachments, url) : [];
-    const composer = await prepareDoubaoComposer(url, prompt, names);
-    requireDestination(url);
-    if (!composer.editor.isConnected || !isEnabled(composer.sendButton) ||
-        readDoubaoPrompt(composer.editor).trim() !== prompt.trim() ||
-        !doubaoUploadEvidence(doubaoComposerRoot(composer.editor), names)) {
-      throw new Error('The Doubao draft changed before sending.');
-    }
-    const snapshot = createDoubaoSubmissionSnapshot(composer, names);
-    composer.sendButton.click();
-    if (!await waitForDoubaoSubmission(snapshot, 6000)) {
-      throw new Error('Doubao did not confirm that the message was submitted.');
-    }
-    return { method: 'button' };
+    let cleanup;
+    return RelayDrafts.withCleanup(() => cleanup?.(), async () => {
+      const composer = await prepareDoubaoComposer(url, prompt, names, (editor) => {
+        cleanup?.();
+        cleanup = RelayDrafts.trackInserted(editor, readDoubaoPrompt, (target) => setDoubaoPrompt(target, ''));
+      });
+      requireDestination(url);
+      RelayDrafts.requireAvailable(composer.editor, prompt, readDoubaoPrompt);
+      if (!composer.editor.isConnected || !isEnabled(composer.sendButton) ||
+          readDoubaoPrompt(composer.editor).trim() !== prompt.trim() ||
+          !doubaoUploadEvidence(doubaoComposerRoot(composer.editor), names)) {
+        throw new Error('The Doubao draft changed before sending.');
+      }
+      const snapshot = createDoubaoSubmissionSnapshot(composer, names);
+      composer.sendButton.click();
+      if (!await waitForDoubaoSubmission(snapshot, 6000)) {
+        throw new Error('Doubao did not confirm that the message was submitted.');
+      }
+      return { method: 'button' };
+    });
   }
 
   function postResult(action, requestId, ok, error = '', details = {}) {
@@ -488,7 +500,9 @@
       }
       postResult(resultAction, requestId, true, '', result);
     } catch (error) {
-      postResult(resultAction, requestId, false, error instanceof Error ? error.message : String(error));
+      postResult(resultAction, requestId, false, error instanceof Error ? error.message : String(error), {
+        preserveDestination: error?.preserveDestination === true,
+      });
     }
   });
 })();

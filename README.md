@@ -38,7 +38,7 @@ The launcher stays open. Google opens in a new background tab. Chat services sta
 
 Click **Attach**, drop files onto the composer, or paste an image from the clipboard. Relay allows up to **5 files**, **10 MB per file** and **20 MB total**. Supported formats and availability depend on the selected provider. The six chat services also accept file-only drafts when their site supports it.
 
-With files attached, Google uses [Google AI Mode](https://support.google.com/websearch/answer/16011537?co=GENIE.Platform%3DDesktop&hl=en) and requires a question. Without files, Google still uses ordinary web search. Sign in to the selected services before sending.
+With files attached, Google uses Google AI Mode and requires a question. Without files, Google still uses ordinary web search. Sign in to the selected services before sending.
 
 ## Shortcuts
 
@@ -49,20 +49,22 @@ With files attached, Google uses [Google AI Mode](https://support.google.com/web
 | Open a new Relay tab with the input focused | `⌘⇧Y` | `Ctrl+Shift+Y` |
 | Focus the input in a fresh Relay tab | `⌘⇧L` | `Ctrl+Shift+L` |
 | Select or toggle a service and focus the input | `Option+1–7` | `Alt+1–7` |
-| Start a chat on a supported AI site | `⌘⇧O` | `Ctrl+Shift+O` |
-| Search chats on a supported AI site | `⌘K` | `Ctrl+K` |
+| Start a new chat on the current supported AI site | `⌘⇧O` | `Ctrl+Shift+O` |
+| Open chat search in Gemini | `⌘K` | `Ctrl+K` |
 
 The number shortcuts follow the service buttons and work once the page has focus.
 
 Press `Enter` to submit, `Shift+Enter` for a new line, or `/` to focus the input from outside a text field. During IME composition, `Enter` confirms the candidate.
 
-Customize Relay’s extension shortcuts at `chrome://extensions/shortcuts`.
+Customize Relay’s extension shortcuts at `chrome://extensions/shortcuts`. If `Ctrl+Shift+O` opens Chrome’s Bookmark Manager, give Relay’s new-chat command a different shortcut.
 
 ## Delivery and recovery
 
 Each destination runs independently. **Opened Google search** indicates that a tab opened. **Sent to …** indicates that Relay observed signs of submission on the page. Most chat adapters can retry a text-only send once if the draft is unchanged. Doubao and requests with files are submitted at most once. Check the destination before retrying an unconfirmed send.
 
-A failed or interrupted task keeps a temporary draft. If a single delivery fails and the tab is still on the page Relay opened, it returns to the launcher. Files retained in the running background worker are restored for editing and retrying. If the worker has restarted, missing files are marked **(add again)** and must be reselected or removed. If any destination fails, an open launcher keeps the draft and selected files. Review the results before choosing which services to retry. All destinations succeeding clears the composer. **Copy prompt** copies only the text.
+A failed or interrupted task keeps a temporary draft. After a single delivery fails, Relay can return the tab to the launcher. Files retained in the running background worker are restored for editing and retrying. If the worker has restarted, missing files are marked **(add again)** and must be reselected or removed. If any destination fails, an open launcher keeps the draft and selected files. Review the results before choosing which services to retry. All destinations succeeding clears the composer. **Copy prompt** copies only the text.
+
+If the destination input already contains text, Relay stops delivery there and leaves the page open. Return to Relay to recover the request. Relay clears text it inserted when it can verify that the same input still holds the unchanged text.
 
 If a site's controls are unavailable, check your sign-in and account access, then try the site directly. For Google AI Mode, you can attach files using Google's own controls.
 
