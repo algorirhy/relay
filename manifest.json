@@ -7,6 +7,19 @@
   "homepage_url": "https://github.com/algorirhy/relay",
   "permissions": ["tabs", "notifications", "storage"],
   "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Y",
+        "mac": "Command+Shift+Y"
+      }
+    },
+    "focus-relay": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+L",
+        "mac": "Command+Shift+L"
+      },
+      "description": "Focus the input in a fresh Relay new tab"
+    },
     "new-chat": {
       "suggested_key": {
         "default": "Ctrl+Shift+O",

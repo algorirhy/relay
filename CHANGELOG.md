@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add shortcuts to open Relay with its input focused or to focus the input in a fresh Relay new tab. Show the assigned focus shortcut in the launcher.
+- Focus the input after choosing services with Alt / Option + 1–7.
 - Fix a submission-check crash while waiting for Google AI Mode or text-only chat Send controls to become enabled.
 - Wait for upload progress and stable Send controls, and allow up to two minutes for attachment submission confirmation.
 - Restore failed-task attachments from background memory so a recovered single-service draft can be edited and resent without selecting the files again. Release retained files with the recovery record.

@@ -15,6 +15,7 @@
   const attachButton = document.getElementById('attachment-button');
   const fileInput = document.getElementById('attachment-input');
   const fileList = document.getElementById('attachment-list');
+  const focusShortcut = document.getElementById('focus-shortcut');
   document.getElementById('attachment-limit').textContent = RelayAttachments.limitLabel;
   const buttons = [];
   // A worker restart can leave metadata for files that need to be selected again.
@@ -171,7 +172,7 @@
     copyButton.textContent = 'Copy prompt';
   }
 
-  function selectService(id, shouldFocus = true) {
+  function selectService(id) {
     if (phase !== 'editing') return;
     const service = services.find((candidate) => candidate.id === id);
     if (!service) return;
@@ -183,7 +184,7 @@
       try { localStorage.setItem('launcher:selected', id); } catch { /* Preference storage is optional. */ }
     }
     editDraft();
-    if (shouldFocus) input.focus();
+    input.focus();
   }
 
   function fail(message) {
@@ -366,7 +367,7 @@
     // Digit codes keep the shortcut consistent and prevent symbol insertion.
     if (event.altKey && !event.shiftKey && /^Digit[1-7]$/.test(event.code)) {
       event.preventDefault();
-      selectService(services[Number(event.code.slice(-1)) - 1].id, false);
+      selectService(services[Number(event.code.slice(-1)) - 1].id);
       return;
     }
     if (event.altKey || event.target.closest('textarea, input, select, [contenteditable]')) return;
@@ -399,7 +400,7 @@
   try { savedSelection = localStorage.getItem('launcher:selected'); } catch { /* Storage may be unavailable. */ }
   selected = services.find((service) => service.id === savedSelection) || services[0];
   updateControls();
-  void (async () => {
+  const restored = (async () => {
     try {
       const response = await chrome.runtime.sendMessage({ action: 'launcher-job', restoreDraft: true });
       if (!response?.ok) throw new Error(response?.error || 'Reload the extension to enable automatic sending.');
@@ -414,4 +415,29 @@
       }
     }
   })();
+
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.action !== 'focus-relay') return false;
+    void restored.then(() => {
+      sendResponse();
+      if (phase !== 'editing' || document.hidden) return;
+      if (document.hasFocus()) {
+        input.focus({ preventScroll: true });
+      } else if (message.fromNewTab && !input.value && !attachments.length && !multiple &&
+        selectedServiceIds.size === services.length && !currentJobId && !status.textContent) {
+        // Chrome focuses the contents when a replacement NTP navigates away from
+        // its override URL. Replace this empty page with the same Relay UI.
+        phase = 'navigating';
+        window.location.replace(chrome.runtime.getURL('newtab.html?focus=prompt'));
+      }
+    });
+    return true;
+  });
+
+  void chrome.commands.getAll().then((commands) => {
+    const shortcut = commands.find((command) => command.name === 'focus-relay')?.shortcut;
+    if (!shortcut) return;
+    focusShortcut.querySelector('kbd').textContent = shortcut;
+    focusShortcut.hidden = false;
+  }).catch(() => {});
 })();

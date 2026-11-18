@@ -34,13 +34,20 @@ async function createHarness({ saved = null, storageFails = false, clipboardFail
   }
   const elements = Object.fromEntries(['prompt', 'launcher-form', 'submit-button', 'submit-label', 'service-hint', 'status', 'multiple-mode', 'copy-prompt', 'composer', 'attachment-button', 'attachment-input', 'attachment-list', 'attachment-limit'].map((id) => [id, new Element(id === 'prompt' ? 'textarea' : 'div')]));
   const grid = new Element();
+  const focusShortcut = new Element();
+  focusShortcut.hidden = true;
+  const shortcutKey = new Element();
+  focusShortcut.querySelector = () => shortcutKey;
+  elements['focus-shortcut'] = focusShortcut;
   const document = new Element('document');
+  document.hasFocus = () => false;
   document.getElementById = (id) => elements[id];
   document.querySelector = () => grid;
   document.createElement = (tagName) => new Element(tagName);
   const records = { navigated: [], copied: [], stored: [], messages: [] };
   const timers = [];
   let job = initialJob;
+  let runtimeMessageListener;
   const context = vm.createContext({
     URL,
     File,
@@ -57,32 +64,42 @@ async function createHarness({ saved = null, storageFails = false, clipboardFail
         } else { this.result = file.dataUrl; this.onload(); }
       }
     },
-    window: { setTimeout(callback) { timers.push(callback); }, location: { assign(url) {
-      if (navigationFails) throw new Error('Navigation blocked');
-      records.navigated.push(url);
-    } } },
+    window: { setTimeout(callback) { timers.push(callback); }, location: {
+      assign(url) {
+        if (navigationFails) throw new Error('Navigation blocked');
+        records.navigated.push(url);
+      },
+      replace(url) { records.navigated.push(url); },
+    } },
     navigator: clipboardMissing ? {} : { clipboard: { async writeText(text) {
       if (clipboardFails) throw new Error('Permission denied');
       records.copied.push(text);
     } } },
-    chrome: { runtime: { async sendMessage(message) {
-      records.messages.push(JSON.parse(JSON.stringify(message)));
-      if (message.action === 'launcher-job') {
-        if (job?.id === 'test-job' && pollFailures > 0) {
-          pollFailures -= 1;
-          throw new Error('Worker unavailable');
-        }
-        return { ok: true, job, attachments: message.restoreDraft ? restoredAttachments : [] };
-      }
-      if (message.action === 'clear-launcher-job') {job=null; return {ok:true};}
-      if (message.action === 'launch-prompt') {
-        if (submitGate) await submitGate;
-        if (rejectLaunch) return {accepted:false,error:'Delivery was not accepted. Nothing was sent.'};
-        job={id:'test-job',state:'pending',prompt:message.prompt,siteIds:message.siteIds,multiple:message.multiple};
-        if (loseAcknowledgement) throw new Error('The message port closed');
-        return {accepted:true,jobId:job.id};
-      }
-    } } },
+    chrome: {
+      commands: { async getAll() { return [{ name: 'focus-relay', shortcut: 'Customized' }]; } },
+      runtime: {
+        getURL: (path) => `chrome-extension://test/${path}`,
+        onMessage: { addListener(listener) { runtimeMessageListener = listener; } },
+        async sendMessage(message) {
+          records.messages.push(JSON.parse(JSON.stringify(message)));
+          if (message.action === 'launcher-job') {
+            if (job?.id === 'test-job' && pollFailures > 0) {
+              pollFailures -= 1;
+              throw new Error('Worker unavailable');
+            }
+            return { ok: true, job, attachments: message.restoreDraft ? restoredAttachments : [] };
+          }
+          if (message.action === 'clear-launcher-job') {job=null; return {ok:true};}
+          if (message.action === 'launch-prompt') {
+            if (submitGate) await submitGate;
+            if (rejectLaunch) return {accepted:false,error:'Delivery was not accepted. Nothing was sent.'};
+            job={id:'test-job',state:'pending',prompt:message.prompt,siteIds:message.siteIds,multiple:message.multiple};
+            if (loseAcknowledgement) throw new Error('The message port closed');
+            return {accepted:true,jobId:job.id};
+          }
+        },
+      },
+    },
     localStorage: {
       getItem() { if (storageFails) throw new Error('Blocked'); return saved; },
       setItem(key, value) { if (storageFails) throw new Error('Blocked'); records.stored.push([key, value]); },
@@ -94,9 +111,34 @@ async function createHarness({ saved = null, storageFails = false, clipboardFail
   const type = (text) => { elements.prompt.value = text; elements.prompt.emit('input'); };
   const toggle = (value) => {elements['multiple-mode'].checked=value; elements['multiple-mode'].emit('change');};
   const finish = async (result) => {job={...job,state:'complete',result}; timers.shift()?.(); await settle();};
+  const focusPrompt = (fromNewTab = true) => new Promise((resolve) => {
+    assert.equal(runtimeMessageListener({ action: 'focus-relay', fromNewTab }, {}, resolve), true);
+  });
   await settle();
-  return { elements, grid, document, records, choose, type, settle, toggle, finish, catalog: context.RelaySites };
+  return { elements, grid, document, records, choose, type, settle, toggle, finish, focusPrompt, shortcutKey, catalog: context.RelaySites };
 }
+
+test('the launcher shows the assigned binding and focuses a fresh new tab with one replacement', async () => {
+  const h = await createHarness();
+  assert.equal(h.elements['focus-shortcut'].hidden, false);
+  assert.equal(h.shortcutKey.textContent, 'Customized');
+  await h.focusPrompt(false);
+  assert.deepEqual(h.records.navigated, []);
+  await h.focusPrompt();
+  await h.focusPrompt();
+  assert.deepEqual(h.records.navigated, ['chrome-extension://test/newtab.html?focus=prompt']);
+});
+
+test('the focus shortcut preserves an existing draft when the address bar has focus', async () => {
+  const h = await createHarness();
+  h.type('Keep this draft');
+  await h.focusPrompt();
+  assert.deepEqual(h.records.navigated, []);
+  assert.equal(h.elements.prompt.value, 'Keep this draft');
+  h.document.hasFocus = () => true;
+  await h.focusPrompt();
+  assert.equal(h.document.activeElement, h.elements.prompt);
+});
 
 test('new tab renders Google and the six chat services, with one remembered selection', async () => {
   const h = await createHarness({ saved: 'deepseek' });
@@ -226,10 +268,11 @@ test('Option+1–7 works consecutively inside input using physical keys without 
   }
 });
 
-test('Option shortcuts work outside input; plain digits, IME and other modifier combinations are untouched', async () => {
+test('Option shortcuts refocus the input; plain digits, IME and other modifiers are untouched', async () => {
   const h = await createHarness();
   h.document.emit('keydown', {altKey: true, code: 'Digit7', key: '¶'});
   assert.equal(h.grid.children[6].attributes['aria-pressed'], 'true');
+  assert.equal(h.document.activeElement, h.elements.prompt);
   const ignored = [
     {altKey: false}, {metaKey: true}, {ctrlKey: true}, {shiftKey: true},
     {isComposing: true}, {keyCode: 229}, {code: 'Digit8'}, {code: 'KeyQ'},
@@ -245,6 +288,12 @@ test('Option shortcuts work outside input; plain digits, IME and other modifier 
   h.elements.prompt.emit('compositionend');
   h.document.activeElement = null;
   assert.equal(h.document.emit('keydown', {key: '/'}).defaultPrevented, true);
+  assert.equal(h.document.activeElement, h.elements.prompt);
+
+  h.toggle(true);
+  h.elements['multiple-mode'].focus();
+  h.document.emit('keydown', { altKey: true, code: 'Digit7', key: '¶', target: h.elements['multiple-mode'] });
+  assert.equal(h.grid.children[6].attributes['aria-pressed'], 'false');
   assert.equal(h.document.activeElement, h.elements.prompt);
 });
 

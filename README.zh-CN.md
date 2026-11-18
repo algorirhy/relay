@@ -44,13 +44,15 @@ Relay 是一款开源 Chrome 扩展。你可以在新标签页搜索 Google，�
 
 | 位置 | 快捷键 | 操作 |
 | --- | --- | --- |
+| Chrome | `Command+Shift+Y` / `Ctrl+Shift+Y` | 打开一个新的 Relay 标签页并聚焦输入框，可在 `chrome://extensions/shortcuts` 修改。 |
+| 刚打开的 Relay 新标签页 | `Command+Shift+L` / `Ctrl+Shift+L` | 在当前标签页聚焦输入框，可在 `chrome://extensions/shortcuts` 修改。 |
 | 新标签页 | `Enter` / `Shift+Enter` | 提交 / 换行；输入法选词不会提交。 |
-| 新标签页 | `Option+1–7` / `Alt+1–7` | 单服务时切换，多服务时切换选中状态。顺序为 Google、ChatGPT、Claude、Gemini、Grok、DeepSeek、Doubao。 |
+| 新标签页，焦点在页面内 | `Option+1–7` / `Alt+1–7` | 选择服务或切换选中状态，并聚焦输入框。顺序为 Google、ChatGPT、Claude、Gemini、Grok、DeepSeek、Doubao。 |
 | 新标签页，输入框外 | `/` | 聚焦输入框。 |
 | 支持的 AI 网站 | `Command+Shift+O` / `Ctrl+Shift+O` | 新建对话，可在 `chrome://extensions/shortcuts` 修改。 |
 | 支持的 AI 网站 | `Command+K` / `Ctrl+K` | 使用网站的对话搜索命令；扩展为 Gemini 映射此快捷键。 |
 
-页面快捷键需要页面焦点。Chrome 新建标签页时，可能仍优先聚焦地址栏。
+用 `Command+T` / `Ctrl+T` 新建标签页时，Chrome 会先聚焦地址栏。在开始写草稿前，可以用聚焦快捷键切到 Relay 输入框。
 
 ## 发送结果与恢复
 

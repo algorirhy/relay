@@ -41,9 +41,11 @@ function createHarness(initialTabs, {
     updated: [],
     submitted: [],
     notifications: [],
+    shortcuts: [],
   };
   let runtimeMessageListener;
   let actionClickListener;
+  let commandListener;
   let tabRemovedListener;
   let nextTabId = 100;
 
@@ -70,7 +72,7 @@ function createHarness(initialTabs, {
       onClicked: { addListener(listener) { actionClickListener = listener; } },
     },
     commands: {
-      onCommand: { addListener() {} },
+      onCommand: { addListener(listener) { commandListener = listener; } },
     },
     notifications: {
       async create(options) {
@@ -111,6 +113,9 @@ function createHarness(initialTabs, {
       },
       async sendMessage(tabId, message) {
         const tab = tabs.find((candidate) => candidate.id === tabId);
+        if (message.action === 'focus-relay' || message.action === 'new-chat') {
+          records.shortcuts.push({ tabId, ...message });
+        }
         if (message.action === 'ping') {
           const siteId = siteIdFromUrl(tab.url);
           afterPing(tab);
@@ -161,7 +166,7 @@ function createHarness(initialTabs, {
     }
     assert.fail('Launcher delivery did not finish');
   }
-  return { records, request, waitForLauncher, session, runtimeMessageListener, actionClickListener, tabRemovedListener };
+  return { records, request, waitForLauncher, session, runtimeMessageListener, actionClickListener, commandListener, tabRemovedListener };
 }
 
 const launcherTab = {id: 1, windowId: 1, index: 0, url: 'chrome-extension://test/newtab.html'};
@@ -174,6 +179,22 @@ test('toolbar action opens Relay in the current window without changing the curr
     { windowId: 4, url: 'chrome-extension://test/newtab.html', id: 100 },
   ]);
   assert.deepEqual(h.records.updated, []);
+});
+
+test('the focus shortcut targets Relay and only identifies a genuine new tab for replacement', async () => {
+  const newTab = { ...launcherTab, id: 2, url: 'chrome://newtab/' };
+  const website = { ...launcherTab, id: 3, url: 'https://chatgpt.com/' };
+  const h = createHarness([launcherTab, newTab, website]);
+  await h.commandListener('focus-relay', newTab);
+  await h.commandListener('focus-relay', launcherTab);
+  await h.commandListener('focus-relay', website);
+  await h.commandListener('focus-relay', { ...newTab, pendingUrl: website.url });
+  await h.commandListener('new-chat', website);
+  assert.deepEqual(h.records.shortcuts, [
+    { tabId: 2, action: 'focus-relay', fromNewTab: true },
+    { tabId: 1, action: 'focus-relay', fromNewTab: false },
+    { tabId: 3, action: 'new-chat' },
+  ]);
 });
 
 test('multi-service delivery reuses the first matching tab in the preferred window', async () => {

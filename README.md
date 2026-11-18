@@ -44,13 +44,15 @@ With files attached, Google uses [Google AI Mode](https://support.google.com/web
 
 | Where | Shortcut | Action |
 | --- | --- | --- |
+| Chrome | `Command+Shift+Y` / `Ctrl+Shift+Y` | Open a new Relay tab with its input focused. Customize at `chrome://extensions/shortcuts`. |
+| Fresh Relay new tab | `Command+Shift+L` / `Ctrl+Shift+L` | Focus the input in the current tab. Customize at `chrome://extensions/shortcuts`. |
 | New tab | `Enter` / `Shift+Enter` | Submit / insert a newline. IME confirmation does not submit. |
-| New tab | `Option+1–7` / `Alt+1–7` | Select a service; in multiple mode, toggle its selection. Order: Google, ChatGPT, Claude, Gemini, Grok, DeepSeek, Doubao. |
+| New tab, with page focus | `Option+1–7` / `Alt+1–7` | Select or toggle a service and focus the input. Order: Google, ChatGPT, Claude, Gemini, Grok, DeepSeek, Doubao. |
 | New tab, outside editors | `/` | Focus the input. |
 | Supported AI website | `Command+Shift+O` / `Ctrl+Shift+O` | Start a new chat. Customize at `chrome://extensions/shortcuts`. |
 | Supported AI website | `Command+K` / `Ctrl+K` | Search conversations using the site's command; Gemini is mapped to this shortcut. |
 
-Page shortcuts work after focus enters the page. Chrome may initially keep focus in the address bar.
+After `Command+T` / `Ctrl+T`, use the focus shortcut before starting a draft. Chrome initially focuses its address bar.
 
 ## Delivery and recovery
 

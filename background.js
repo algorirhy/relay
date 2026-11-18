@@ -369,15 +369,19 @@ chrome.tabs.onRemoved?.addListener((tabId) => {
     .catch(console.error);
 });
 
-chrome.commands.onCommand.addListener(async (command) => {
-  if (command !== 'new-chat') return;
+chrome.commands.onCommand.addListener(async (command, sourceTab) => {
+  if (command !== 'new-chat' && command !== 'focus-relay') return;
 
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (Number.isInteger(tab?.id)) {
-      await chrome.tabs.sendMessage(tab.id, { action: 'new-chat' });
+    const tab = sourceTab ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
+    if (!Number.isInteger(tab?.id)) return;
+    const message = { action: command };
+    if (command === 'focus-relay') {
+      if (!isLauncherTab(tab)) return;
+      message.fromNewTab = !isLauncherUrl(tab.url);
     }
+    await chrome.tabs.sendMessage(tab.id, message);
   } catch (error) {
-    console.error(`${LOG_PREFIX} Failed to start a new chat:`, error);
+    console.error(`${LOG_PREFIX} Could not run the ${command} shortcut:`, error);
   }
 });
