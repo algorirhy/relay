@@ -42,17 +42,21 @@ Relay 是一款开源 Chrome 扩展。你可以在新标签页搜索 Google，�
 
 ## 快捷键
 
-| 位置 | 快捷键 | 操作 |
-| --- | --- | --- |
-| Chrome | `Command+Shift+Y` / `Ctrl+Shift+Y` | 打开一个新的 Relay 标签页并聚焦输入框，可在 `chrome://extensions/shortcuts` 修改。 |
-| 刚打开的 Relay 新标签页 | `Command+Shift+L` / `Ctrl+Shift+L` | 在当前标签页聚焦输入框，可在 `chrome://extensions/shortcuts` 修改。 |
-| 新标签页 | `Enter` / `Shift+Enter` | 提交 / 换行；输入法选词不会提交。 |
-| 新标签页，焦点在页面内 | `Option+1–7` / `Alt+1–7` | 选择服务或切换选中状态，并聚焦输入框。顺序为 Google、ChatGPT、Claude、Gemini、Grok、DeepSeek、Doubao。 |
-| 新标签页，输入框外 | `/` | 聚焦输入框。 |
-| 支持的 AI 网站 | `Command+Shift+O` / `Ctrl+Shift+O` | 新建对话，可在 `chrome://extensions/shortcuts` 修改。 |
-| 支持的 AI 网站 | `Command+K` / `Ctrl+K` | 使用网站的对话搜索命令；扩展为 Gemini 映射此快捷键。 |
+**打开新标签页后，按 `Esc` 就可以在 Relay 输入。** 如果焦点仍在 Chrome 地址栏，再按一次。
 
-用 `Command+T` / `Ctrl+T` 新建标签页后，按 `Esc` 可从 Chrome 地址栏回到 Relay 输入框。如果第一次只关掉了建议列表或撤销了输入，焦点还在地址栏时再按一次。
+| 操作 | Mac | Windows / Linux |
+| --- | --- | --- |
+| 打开新的 Relay 标签页并聚焦输入框 | `⌘⇧Y` | `Ctrl+Shift+Y` |
+| 聚焦刚打开的 Relay 标签页的输入框 | `⌘⇧L` | `Ctrl+Shift+L` |
+| 选择或切换服务，并聚焦输入框 | `Option+1–7` | `Alt+1–7` |
+| 在支持的 AI 网站新建对话 | `⌘⇧O` | `Ctrl+Shift+O` |
+| 在支持的 AI 网站搜索对话 | `⌘K` | `Ctrl+K` |
+
+数字快捷键按服务按钮的顺序排列，在焦点进入 Relay 页面后生效。
+
+`Enter` 提交，`Shift+Enter` 换行，在文字输入区外按 `/` 可聚焦输入框。输入法选词时，`Enter` 用来确认候选词。
+
+可在 `chrome://extensions/shortcuts` 修改 Relay 的扩展快捷键。
 
 ## 发送结果与恢复
 

@@ -4,7 +4,7 @@ Relay is a Chrome Manifest V3 extension written in plain JavaScript, HTML, and C
 
 | File | Responsibility |
 | --- | --- |
-| `manifest.json` | New-tab override, toolbar action, permissions, keyboard command, and script registration. |
+| `manifest.json` | New-tab override, toolbar action, permissions, keyboard commands, and script registration. |
 | `newtab.html`, `newtab.js`, `styles.css`, `theme.css` | Composer, file picker, service selection, shortcuts, results, and draft recovery. |
 | `sites.js` | Service order, supported hosts, new-chat URLs, and page selectors. Google uses a separate AI Mode route for requests with files. |
 | `attachments.js` | Shared limits, metadata, payload validation, decoding, and file input matching. |
@@ -21,6 +21,7 @@ The launcher, worker, and provider adapters own their respective transitions. Dr
 | --- | --- | --- |
 | Launcher | `newtab.js`: restoring → editing → submitting → waiting → editing. Empty single drafts and single Google searches go directly from editing to navigating. | One phase locks the composer. Each poll checks the current job ID. Two retries cover failed status reads. A lost acknowledgement leaves delivery uncertain. |
 | Destinations | `newtab.js`: single selection ↔ multiple selection. Both selections survive mode changes. | Store only the last single preference. In multiple mode, a nonempty selection and draft are required. |
+| Launcher focus | `newtab.js` focuses the prompt when Chrome returns focus to the page or a service is selected. The focus command can replace the empty new-tab page in the same tab. | Preserve a focused control on page entry and keep existing drafts in place. |
 | Keyboard and dragging | `newtab.js`: IME composition starts and ends independently. File drag feedback is active until leaving the composer or dropping files. | Suppress submit and service shortcuts during composition. Accept file changes while editing. |
 | Files | `newtab.js`: selected → validated → reading → encoded payload. Restore files from the running worker's memory after launcher navigation. | A restarted worker has only metadata, so missing files block submission until reselected or removed. The composer stays locked during file reads. |
 | Results and copy | `newtab.js`: pending, confirmed, failed or interrupted; an explicit copy can succeed or fail. | All-success consumes the draft. Partial results keep it for review. Clipboard feedback applies to the draft that initiated the copy. |

@@ -42,17 +42,21 @@ With files attached, Google uses [Google AI Mode](https://support.google.com/web
 
 ## Shortcuts
 
-| Where | Shortcut | Action |
-| --- | --- | --- |
-| Chrome | `Command+Shift+Y` / `Ctrl+Shift+Y` | Open a new Relay tab with its input focused. Customize at `chrome://extensions/shortcuts`. |
-| Fresh Relay new tab | `Command+Shift+L` / `Ctrl+Shift+L` | Focus the input in the current tab. Customize at `chrome://extensions/shortcuts`. |
-| New tab | `Enter` / `Shift+Enter` | Submit / insert a newline. IME confirmation does not submit. |
-| New tab, with page focus | `Option+1–7` / `Alt+1–7` | Select or toggle a service and focus the input. Order: Google, ChatGPT, Claude, Gemini, Grok, DeepSeek, Doubao. |
-| New tab, outside editors | `/` | Focus the input. |
-| Supported AI website | `Command+Shift+O` / `Ctrl+Shift+O` | Start a new chat. Customize at `chrome://extensions/shortcuts`. |
-| Supported AI website | `Command+K` / `Ctrl+K` | Search conversations using the site's command; Gemini is mapped to this shortcut. |
+**Open a new tab, then press `Esc` to type in Relay.** Press `Esc` again if Chrome keeps focus in the address bar.
 
-After `Command+T` / `Ctrl+T`, press `Esc` to return from Chrome’s address bar to Relay. The first press may dismiss suggestions or clear an edit. Press `Esc` again if the address bar still has focus.
+| Action | Mac | Windows / Linux |
+| --- | --- | --- |
+| Open a new Relay tab with the input focused | `⌘⇧Y` | `Ctrl+Shift+Y` |
+| Focus the input in a fresh Relay tab | `⌘⇧L` | `Ctrl+Shift+L` |
+| Select or toggle a service and focus the input | `Option+1–7` | `Alt+1–7` |
+| Start a chat on a supported AI site | `⌘⇧O` | `Ctrl+Shift+O` |
+| Search chats on a supported AI site | `⌘K` | `Ctrl+K` |
+
+The number shortcuts follow the service buttons and work once the page has focus.
+
+Press `Enter` to submit, `Shift+Enter` for a new line, or `/` to focus the input from outside a text field. During IME composition, `Enter` confirms the candidate.
+
+Customize Relay’s extension shortcuts at `chrome://extensions/shortcuts`.
 
 ## Delivery and recovery
 
