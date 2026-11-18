@@ -52,7 +52,7 @@ With files attached, Google uses [Google AI Mode](https://support.google.com/web
 | Supported AI website | `Command+Shift+O` / `Ctrl+Shift+O` | Start a new chat. Customize at `chrome://extensions/shortcuts`. |
 | Supported AI website | `Command+K` / `Ctrl+K` | Search conversations using the site's command; Gemini is mapped to this shortcut. |
 
-After `Command+T` / `Ctrl+T`, use the focus shortcut before starting a draft. Chrome initially focuses its address bar.
+After `Command+T` / `Ctrl+T`, press `Esc` to return from Chrome’s address bar to Relay. The first press may dismiss suggestions or clear an edit. Press `Esc` again if the address bar still has focus.
 
 ## Delivery and recovery
 

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Focus the prompt when Chrome returns keyboard focus to the launcher and no control is selected.
 - Add shortcuts to open Relay with its input focused or to focus the input in a fresh Relay new tab. Show the assigned focus shortcut in the launcher.
 - Focus the input after choosing services with Alt / Option + 1–7.
 - Fix a submission-check crash while waiting for Google AI Mode or text-only chat Send controls to become enabled.

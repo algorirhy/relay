@@ -40,12 +40,24 @@ async function createHarness({ saved = null, storageFails = false, clipboardFail
   focusShortcut.querySelector = () => shortcutKey;
   elements['focus-shortcut'] = focusShortcut;
   const document = new Element('document');
+  document.body = new Element('body');
+  document.activeElement = document.body;
   document.hasFocus = () => false;
   document.getElementById = (id) => elements[id];
   document.querySelector = () => grid;
   document.createElement = (tagName) => new Element(tagName);
   const records = { navigated: [], copied: [], stored: [], messages: [] };
   const timers = [];
+  const window = Object.assign(new Element('window'), {
+    setTimeout(callback) { timers.push(callback); },
+    location: {
+      assign(url) {
+        if (navigationFails) throw new Error('Navigation blocked');
+        records.navigated.push(url);
+      },
+      replace(url) { records.navigated.push(url); },
+    },
+  });
   let job = initialJob;
   let runtimeMessageListener;
   const context = vm.createContext({
@@ -64,13 +76,7 @@ async function createHarness({ saved = null, storageFails = false, clipboardFail
         } else { this.result = file.dataUrl; this.onload(); }
       }
     },
-    window: { setTimeout(callback) { timers.push(callback); }, location: {
-      assign(url) {
-        if (navigationFails) throw new Error('Navigation blocked');
-        records.navigated.push(url);
-      },
-      replace(url) { records.navigated.push(url); },
-    } },
+    window,
     navigator: clipboardMissing ? {} : { clipboard: { async writeText(text) {
       if (clipboardFails) throw new Error('Permission denied');
       records.copied.push(text);
@@ -115,8 +121,20 @@ async function createHarness({ saved = null, storageFails = false, clipboardFail
     assert.equal(runtimeMessageListener({ action: 'focus-relay', fromNewTab }, {}, resolve), true);
   });
   await settle();
-  return { elements, grid, document, records, choose, type, settle, toggle, finish, focusPrompt, shortcutKey, catalog: context.RelaySites };
+  return { elements, grid, document, window, records, choose, type, settle, toggle, finish, focusPrompt, shortcutKey, catalog: context.RelaySites };
 }
+
+test('when Chrome returns focus to the page, Relay focuses the input if no control has focus', async () => {
+  const h = await createHarness();
+  assert.equal(h.document.activeElement, h.document.body);
+  h.document.hasFocus = () => true;
+  h.window.emit('focus');
+  assert.equal(h.document.activeElement, h.elements.prompt);
+  h.elements['attachment-button'].focus();
+  h.window.emit('focus');
+  assert.equal(h.document.activeElement, h.elements['attachment-button']);
+  assert.deepEqual(h.records.navigated, []);
+});
 
 test('the launcher shows the assigned binding and focuses a fresh new tab with one replacement', async () => {
   const h = await createHarness();

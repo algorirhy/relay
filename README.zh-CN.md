@@ -52,7 +52,7 @@ Relay 是一款开源 Chrome 扩展。你可以在新标签页搜索 Google，�
 | 支持的 AI 网站 | `Command+Shift+O` / `Ctrl+Shift+O` | 新建对话，可在 `chrome://extensions/shortcuts` 修改。 |
 | 支持的 AI 网站 | `Command+K` / `Ctrl+K` | 使用网站的对话搜索命令；扩展为 Gemini 映射此快捷键。 |
 
-用 `Command+T` / `Ctrl+T` 新建标签页时，Chrome 会先聚焦地址栏。在开始写草稿前，可以用聚焦快捷键切到 Relay 输入框。
+用 `Command+T` / `Ctrl+T` 新建标签页后，按 `Esc` 可从 Chrome 地址栏回到 Relay 输入框。如果第一次只关掉了建议列表或撤销了输入，焦点还在地址栏时再按一次。
 
 ## 发送结果与恢复
 

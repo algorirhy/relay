@@ -396,6 +396,14 @@
     }
   });
 
+  function focusPromptOnPageEntry() {
+    if (phase === 'editing' && document.hasFocus() && document.activeElement === document.body) {
+      input.focus({ preventScroll: true });
+    }
+  }
+
+  window.addEventListener('focus', focusPromptOnPageEntry);
+
   let savedSelection;
   try { savedSelection = localStorage.getItem('launcher:selected'); } catch { /* Storage may be unavailable. */ }
   selected = services.find((service) => service.id === savedSelection) || services[0];
@@ -410,9 +418,7 @@
     } finally {
       if (phase === 'restoring') phase = 'editing';
       updateControls();
-      if (phase === 'editing' && document.hasFocus?.() && document.activeElement === document.body) {
-        input.focus({ preventScroll: true });
-      }
+      focusPromptOnPageEntry();
     }
   })();
 
